@@ -4,10 +4,10 @@ A security-first, local coding-agent project. The agent will use a local model
 through Ollama, work within a user-selected project, and operate under
 enforceable least-privilege controls.
 
-This repository is currently in the architecture and planning stage. The first
-implementation target is Linux, Go, Docker in rootless mode, and a locally
-bound Ollama server. Ollama is an adapter, not a hard dependency of the core
-design.
+This repository is currently in the architecture and planning stage. The locked
+implementation baseline is Linux, Python 3.11+, `uv`, rootless Docker, and a
+locally bound Ollama server. Ollama is an adapter, not a hard dependency of the
+core design.
 
 ## Core idea
 
@@ -24,37 +24,43 @@ a permission boundary.
 
 - The model cannot directly access files, processes, credentials, or networks.
 - A task can access only its disposable workspace by default.
+- Secret-like and policy-excluded files are removed before any workspace bytes
+  can enter model context or audit data.
 - Paths are resolved beneath the workspace root; string-prefix checks are not
-  considered sufficient.
+  considered sufficient, and symlinks are rejected rather than followed.
+- Multi-file patches become visible only after every hunk validates and the new
+  workspace generation is complete.
 - Command execution is non-root, resource-limited, time-limited, and offline by
   default.
 - Model output, repository content, tool output, and dependency output are all
   treated as untrusted input.
-- Destructive, networked, credentialed, or externally visible actions require
-  explicit policy and human approval.
+- Commands require a narrow approval grant for an exact configured recipe;
+  networked, credentialed, or externally visible actions are absent from the
+  MVP.
 - Every proposed and executed action produces an audit record with secrets
-  redacted.
+  redacted before serialization or persistence.
 
 ## Planned repository layout
 
 ```text
-cmd/                         Go command entry points
-  ulg/                       Local CLI
-internal/
-  controller/                Agent loop and request lifecycle
-  model/                     Model-neutral contracts
-    ollama/                  Ollama API adapter
-  action/                    Typed action and result schemas
+pyproject.toml               Package metadata, CLI entry point, tool settings
+uv.lock                      Reproducible dependency lock
+src/ulg/
+  cli.py                     Local CLI
+  controller.py              Bounded agent loop and request lifecycle
+  actions/                   Typed, versioned action and result schemas
+  model/                     Provider contract, fake, and Ollama adapters
   policy/                    Deterministic authorization decisions
-  approval/                  Human approval workflow
-  tools/                     Read, search, patch, diff, and task tools
-  workspace/                 Task copies, snapshots, and promotion
+  approval/                  Scoped capability grants
+  tools/                     Read, search, patch, diff, and recipe tools
+  workspace/                 Copies, generations, exclusions, patch export
   sandbox/                   Isolated process runner
-  audit/                     Structured, redacted event log
-  config/                    Configuration loading and validation
-config/                      Example policy files
-docs/                        Architecture, security model, and plans
-testdata/adversarial/        Prompt-injection and sandbox escape fixtures
+  audit/                     Structured pre-write redaction and JSONL sink
+  config/                    Strict TOML configuration loading
+tests/                       Unit, integration, and security suites
+config/                      Example trusted policy files
+docs/                        Architecture, security model, plans, and ADRs
+testdata/adversarial/        Inert injection, path, and resource fixtures
 ```
 
 Implementation directories will be introduced phase by phase instead of being
@@ -66,14 +72,17 @@ filled with empty placeholders.
 - [Security model](docs/security-model.md)
 - [Development plan](docs/development-plan.md)
 - [Trust-boundary decision](docs/decisions/0001-trusted-controller.md)
-- [Example policy](config/policy.example.yaml)
+- [Python implementation baseline](docs/decisions/0002-python-baseline.md)
+- [Security mechanisms](docs/decisions/0003-security-mechanisms.md)
+- [Example policy](config/policy.example.toml)
 
 ## Initial scope
 
 The MVP supports one local user and one task at a time. It can inspect a copied
 workspace, propose patches, display the resulting diff, and run preconfigured
-checks without network access. It will not install dependencies, push code,
-deploy software, manage secrets, or make arbitrary host changes.
+checks without network access. It emits a patch for the human to apply outside
+the agent's write path. It will not install dependencies, push code, deploy
+software, manage secrets, or make arbitrary host changes.
 
 ## Definition of success
 

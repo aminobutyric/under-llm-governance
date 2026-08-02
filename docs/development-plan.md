@@ -6,9 +6,10 @@ Build capability in small increments. Every phase must preserve the security
 invariants from the previous phase and finish with automated acceptance tests.
 Later phases may add permissions only behind explicit policy.
 
-The initial implementation target is Go on Linux. Use the standard library when
-practical, pin third-party dependencies, and keep the trusted controller
-separate from commands running in the sandbox.
+The locked implementation target is Python 3.11+ on Linux, managed with `uv` and
+a committed lockfile. Use the standard library when practical, validate external
+data with strict Pydantic models, pin third-party dependencies, and keep the
+trusted controller separate from commands running in the sandbox.
 
 ## Phase 0: executable specification
 
@@ -17,17 +18,17 @@ effectful tool.
 
 Deliverables:
 
-- Create the Go module and `cmd/ulg` entry point.
+- Create `pyproject.toml`, `uv.lock`, the `src/ulg` package, and the `ulg` entry
+  point.
 - Define versioned configuration, action, result, decision, approval, and audit
-  schemas.
-- Implement strict configuration parsing with safe built-in defaults.
+  models with strict Pydantic validation and rejection of unknown fields.
+- Implement strict TOML configuration parsing with safe built-in defaults.
 - Define interfaces for the model adapter, policy engine, tools, workspace
   manager, sandbox runner, approval service, and audit sink.
 - Add structured errors and task/correlation identifiers.
-- Add architecture-decision records for the sandbox backend and workspace-copy
-  strategy after short prototypes.
-- Establish formatting, unit tests, static analysis, dependency scanning, and a
-  CI workflow.
+- Add executable contract tests for the locked sandbox and workspace-generation
+  boundaries, documenting any implementation limitation as a new ADR.
+- Establish Ruff, mypy, pytest, Hypothesis, dependency scanning, and CI.
 
 Exit criteria:
 
@@ -47,8 +48,12 @@ Deliverables:
 - Implement the Ollama chat/tool-calling adapter with endpoint validation,
   timeouts, response-size limits, and cancellation.
 - Implement workspace selection and a read-only task snapshot.
+- Exclude built-in secret patterns, user patterns, `.git`, and gitignored paths
+  before reading bytes into the task copy.
 - Implement `list_files`, `read_file`, and `search_text`.
 - Enforce relative-path, file-type, size, depth, count, and output limits.
+- Implement descriptor-relative, no-follow path access and adversarial race
+  tests; path-string comparison is not accepted as containment.
 - Add the bounded controller loop with maximum steps and repeated-call
   detection.
 - Add JSON-lines audit logging with redaction.
@@ -69,21 +74,24 @@ project.
 Deliverables:
 
 - Create application-owned, per-task workspace copies with quotas and cleanup.
-- Record a source manifest or baseline needed to detect concurrent changes.
-- Implement `apply_patch` with path and patch-size limits.
+- Record a source manifest used for diff generation, copy verification, and
+  audit metadata.
+- Implement generation-based `apply_patch`: dry-run all hunks, build an
+  unreferenced result, and switch task state only after full validation.
 - Implement `show_diff` and a concise changed-file summary.
 - Prevent tools from modifying trusted configuration or runtime state.
-- Export a validated patch artifact for manual review; automatic promotion is
-  deferred until the approval mechanism exists in Phase 4.
-- Preserve failed task workspaces for a configured period and provide safe
-  cleanup.
+- Export a validated patch artifact for manual review. No promotion operation is
+  implemented inside the controller.
+- Destroy task workspaces after patch export or discard. Retention requires an
+  explicit user choice and remains bounded.
 
 Exit criteria:
 
 - A task can edit several files and produce a correct diff.
 - The original remains unchanged throughout this phase.
 - Patch export contains only paths and changes represented in the reviewed diff.
-- Cancellation or model failure leaves a recoverable task artifact.
+- Cancellation or model failure leaves the last complete generation available
+  for bounded export-or-discard handling; incomplete generations are removed.
 
 ## Phase 3: offline sandboxed verification
 
@@ -93,11 +101,14 @@ Deliverables:
 
 - Build a pinned runner image and document its software bill of materials.
 - Implement the rootless Docker sandbox backend with a fixed security profile.
-- Introduce trusted `run_task` recipes for test, lint, and format.
+- Introduce trusted `run_task` recipes for test, lint, and format. The model
+  selects only a recipe name; it cannot construct or alter commands.
 - Pass commands as argument arrays; do not interpolate model strings into a
   shell.
 - Add clean environment construction and bounded stdin/stdout/stderr capture.
-- Enforce wall-clock, CPU, memory, PID, temporary-storage, and output limits.
+- Default to 512 MiB memory, 1 CPU, 128 PIDs, 60 seconds wall-clock, 128 MiB
+  temporary storage, and 1 MiB combined stdout/stderr. Values are finite and
+  strictly validated from trusted configuration.
 - Kill complete process trees on cancellation or timeout.
 - Record the image digest and effective sandbox settings in audit events.
 
@@ -118,12 +129,12 @@ use.
 Deliverables:
 
 - Implement terminal approval prompts rendered exclusively from normalized
-  action data.
-- Bind each approval to an action digest, task, expiry, and single use.
-- Add explicit `promote` preview and approval, using a validated patch applied by
-  the trusted controller.
-- Refuse promotion when the original source has changed since task creation.
-- Add plan, execute, review, retry, cancel, and promote task states.
+  controller data.
+- Bind grants to an action or exact recipe digest, task, maximum uses, and
+  expiry. Configuration changes revoke existing grants.
+- Keep reads, searches, diffs, and small disposable-workspace patches automatic
+  and logged; require grants for recipes and policy-threshold patch operations.
+- Add plan, execute, review, retry, cancel, export, and discard task states.
 - Explain policy denials to the model without revealing sensitive host details.
 - Add `ulg run`, `ulg resume`, `ulg diff`, `ulg audit`, and `ulg clean` commands.
 - Produce a final report separating attempted actions, executed actions,
@@ -132,7 +143,7 @@ Deliverables:
 Exit criteria:
 
 - Approval replay and prompt-forging tests fail.
-- Promotion never overwrites newer user work silently.
+- No controller or model operation can write to the original directory.
 - A user can understand exactly what changed and which checks actually ran.
 - Interruptions and restarts do not accidentally repeat effectful actions.
 - Audit records reconstruct the complete task lifecycle.
@@ -191,7 +202,7 @@ Exit criteria:
 
 The first implementation milestone should contain these issues, in order:
 
-1. Initialize the Go module and CLI skeleton.
+1. Initialize the locked `uv`/`src` Python project and CLI skeleton.
 2. Define action and policy-decision types.
 3. Load and strictly validate policy configuration.
 4. Implement append-only JSONL audit events with redaction hooks.
@@ -209,6 +220,7 @@ The first implementation milestone should contain these issues, in order:
 - No model-controlled value may become a shell command, host path, container
   image, mount, environment variable name, or sandbox security option without a
   typed allowlist and validation.
+- Never use `shell=True`; execute trusted argument arrays only.
 - Add a negative test with every new permission.
 - Prefer capabilities that are absent over capabilities that are merely denied
   by a prompt.

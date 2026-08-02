@@ -1,0 +1,117 @@
+# Illustrative Phase 0 policy. This file is not consumed by code yet.
+# Project-local configuration may restrict this trusted policy, not expand it.
+version = 1
+
+[model]
+provider = "ollama"
+endpoint = "http://127.0.0.1:11434"
+request_timeout_seconds = 120
+max_response_bytes = 1_048_576
+
+[task]
+max_turns = 40
+max_tool_calls = 100
+max_duration_seconds = 1_800
+max_context_bytes = 8_388_608
+
+[workspace]
+mode = "disposable_generations"
+max_bytes = 1_073_741_824
+retain_after_finish = false
+respect_gitignore = true
+deny_symlinks = true
+deny_special_files = true
+deny_cross_mounts = true
+exclude = [
+  ".git/**",
+  ".env",
+  ".env.*",
+  "*.pem",
+  "*.key",
+  "id_rsa*",
+  "id_ed25519*",
+  ".aws/**",
+  ".config/gcloud/**",
+]
+
+[tools.list_files]
+decision = "allow"
+max_entries = 10_000
+max_depth = 32
+
+[tools.read_file]
+decision = "allow"
+max_bytes = 1_048_576
+
+[tools.search_text]
+decision = "allow"
+max_matches = 1_000
+max_output_bytes = 1_048_576
+
+[tools.apply_patch]
+decision = "allow"
+max_patch_bytes = 1_048_576
+max_changed_files = 100
+ask_above_changed_files = 20
+ask_on_delete = true
+
+[tools.show_diff]
+decision = "allow"
+max_output_bytes = 1_048_576
+
+[tools.run_task]
+decision = "ask"
+allowed_recipes = ["test", "lint", "format"]
+grant_max_uses = 3
+grant_ttl_seconds = 600
+
+[tools.arbitrary_exec]
+decision = "deny"
+
+[tools.network]
+decision = "deny"
+
+[tools.install_dependencies]
+decision = "deny"
+
+[tools.git_push]
+decision = "deny"
+
+[sandbox]
+backend = "rootless_docker"
+network = "none"
+read_only_root = true
+drop_capabilities = "all"
+no_new_privileges = true
+memory_bytes = 536_870_912
+cpus = 1.0
+pids = 128
+wall_time_seconds = 60
+max_combined_output_bytes = 1_048_576
+tmpfs_bytes = 134_217_728
+
+# Recipes are trusted configuration. The model may select a recipe by name but
+# may not supply or alter argv, environment, image, mounts, or sandbox flags.
+[recipes.test]
+argv = ["python", "-m", "pytest", "-q"]
+
+[recipes.lint]
+argv = ["ruff", "check", "."]
+
+[recipes.format]
+argv = ["ruff", "format", "."]
+
+[export]
+format = "unified_diff"
+modify_original = false
+destroy_workspace_after_export = true
+
+[audit]
+format = "jsonl"
+append_only = true
+redact_before_serialize = true
+accept_raw_payloads = false
+include_file_contents = false
+include_environment = false
+max_event_bytes = 65_536
+max_preview_bytes = 4_096

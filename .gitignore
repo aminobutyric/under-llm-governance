@@ -9,10 +9,17 @@ config/local.yaml
 artifacts/
 coverage/
 
-# Go outputs
-bin/
-*.test
-*.out
+# Python environments, caches, and build outputs
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+build/
+dist/
+*.egg-info/
 
 # Editors and operating systems
 .idea/

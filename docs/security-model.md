@@ -28,6 +28,14 @@ authority over the host.
 - Downloaded dependencies and their lifecycle scripts.
 - Existing symlinks, special files, Git hooks, and configuration in a project.
 
+## Prompt-injection position
+
+Direct and file-content prompt injection are explicitly in scope. The MVP does
+not claim it can reliably detect or prevent an instruction from influencing the
+model. Typed actions, deterministic policy, secret exclusion, sandboxing, and
+approval grants limit what an influenced model can accomplish. A valid typed
+action can still be malicious, so schema validation alone never authorizes it.
+
 Local inference changes privacy and availability characteristics, but does not
 make model decisions trustworthy.
 
@@ -42,6 +50,7 @@ The initial single-user threat model covers:
 - a dependency or build script attempting to escape its expected scope;
 - malformed or adversarial tool arguments;
 - denial of service through loops, process creation, output, memory, or disk;
+- context and log exhaustion through many calls or oversized tool results;
 - mistakes in path validation or approval presentation.
 
 Compromise of the host kernel, Docker runtime, or trusted controller is outside
@@ -51,15 +60,19 @@ the MVP guarantee, but the design minimizes their exposed interfaces.
 
 ### Filesystem containment
 
-- Canonical paths are not authorized using string prefixes.
+- Canonical paths and string-prefix comparisons are not authorization checks.
 - The trusted code opens a workspace root and resolves relative descendants
-  from that root.
+  through directory descriptors without following symlinks.
 - Absolute paths, traversal, magic links, cross-mount traversal, symlinks, and
   non-regular files are rejected unless a later policy explicitly supports
   them.
 - Validation and file use must not be separate operations vulnerable to a
   time-of-check/time-of-use race.
 - The original workspace is not the sandbox's writable working directory.
+- The copy walker rejects symlinks and identity changes and excludes `.git`,
+  built-in secret-name patterns, user patterns, and gitignored paths before
+  reading their bytes.
+- Read and search tools enforce the exclusion policy again.
 
 ### Process containment
 
@@ -67,6 +80,8 @@ the MVP guarantee, but the design minimizes their exposed interfaces.
   namespaces, devices, or control sockets.
 - Network is absent by default.
 - Resource and time limits are mandatory, not optional configuration.
+- MVP defaults are 512 MiB memory, 1 CPU, 128 PIDs, 60 seconds, 128 MiB
+  temporary storage, and 1 MiB combined output.
 - A clean environment is constructed from an allowlist.
 - Sandbox termination kills the complete process tree.
 
@@ -74,9 +89,10 @@ the MVP guarantee, but the design minimizes their exposed interfaces.
 
 - Tool schemas use explicit types, bounds, enums, and rejection of unknowns.
 - Policy decisions are deterministic and default to deny.
-- High-impact approval identifies the exact action and cannot be forged by
+- Approval displays normalized controller data and cannot be forged by
   model-generated prose.
-- An approval is scoped to one normalized action and expires after use or time.
+- A grant is scoped to one action or exact recipe digest, task, use count, and
+  expiry; broad per-task authority is forbidden.
 - The model cannot edit policy, audit configuration, sandbox configuration, or
   its own trusted instructions through workspace tools.
 
@@ -84,9 +100,11 @@ the MVP guarantee, but the design minimizes their exposed interfaces.
 
 - Proposed, denied, approved, executed, failed, and timed-out actions are
   recorded.
-- Logs are append-oriented and include task and correlation identifiers.
+- Logs are append-only JSONL and include task and correlation identifiers.
 - File contents, prompts, output, and environment values are bounded and
-  redacted before logging.
+  converted to allowlisted, redacted event fields before serialization.
+- The audit sink refuses raw payload fields. Hash chaining is deferred and the
+  MVP does not claim tamper evidence.
 - The final user report distinguishes model claims from verified command
   results.
 
@@ -95,9 +113,10 @@ the MVP guarantee, but the design minimizes their exposed interfaces.
 | Capability | MVP policy | Rationale |
 |---|---|---|
 | Read a regular file in task copy | Allow with size limit | Required for coding |
-| Write through a validated patch | Allow and audit | Recoverable in disposable copy |
-| Run a configured offline check | Allow and audit | Required for verification |
-| Modify original directory | Ask during promotion | Crosses task boundary |
+| Write a small validated patch | Allow and audit | New disposable generation |
+| Large deletion or patch | Ask or deny | Elevated workspace impact |
+| Run a configured offline check | Scoped grant and audit | Executes project code |
+| Modify original directory | Deny | Human applies exported patch externally |
 | Delete a large set of files | Ask or deny | High integrity impact |
 | Execute arbitrary shell | Deny | Excessive functionality for MVP |
 | Access network | Deny | Prevent exfiltration and downloads |
@@ -122,7 +141,10 @@ Before an MVP release, automated tests must demonstrate failure of:
 9. Git hooks and package lifecycle scripts attempting host access.
 10. Model-provided container flags, images, mounts, or environment variables.
 11. Reuse, expansion, or misleading display of a previously approved action.
-12. Promotion when the original directory changed during the task.
+12. Any controller, model, or sandbox attempt to modify the original directory.
+13. A secret-pattern file appearing in model context, tool output, or audit.
+14. Any partially applied multi-file patch becoming the current generation.
+15. Context, audit, read, search, or command output exceeding its byte budget.
 
 Each test should assert both containment and a useful audit event.
 
@@ -131,6 +153,8 @@ Each test should assert both containment and a useful audit event.
 - Containers share the host kernel and are not a perfect isolation boundary.
 - Offline execution can still damage everything writable inside its task copy.
 - A safe sandbox does not make generated code free of vulnerabilities.
+- Typed actions constrain effects but do not prevent prompt injection or misuse
+  of an allowed action.
 - Users can still approve a harmful action; approval presentation must therefore
   be precise and resistant to model-controlled wording.
 - A single-user local design is not suitable as-is for an internet-facing or

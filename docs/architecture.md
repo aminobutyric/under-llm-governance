@@ -68,9 +68,9 @@ Initial action set:
 | `list_files` | Enumerate a bounded directory | Allow |
 | `read_file` | Read a bounded regular file | Allow |
 | `search_text` | Search text with result limits | Allow |
-| `apply_patch` | Modify the task copy | Allow and audit |
+| `apply_patch` | Create a new task-workspace generation | Allow and audit |
 | `show_diff` | Inspect pending changes | Allow |
-| `run_task` | Run a configured test/lint/format recipe | Allow and audit |
+| `run_task` | Select a fixed test/lint/format recipe by name | Scoped approval |
 
 Arbitrary shell execution, network access, dependency installation, Git push,
 and deployment are deliberately absent from the MVP schema.
@@ -80,7 +80,7 @@ and deployment are deliberately absent from the MVP schema.
 Makes deterministic decisions without consulting an LLM:
 
 - `allow`: execute immediately;
-- `ask`: require an exact, time-bounded user approval;
+- `ask`: require an exact action approval or a bounded capability grant;
 - `deny`: refuse and explain the violated rule.
 
 The policy receives normalized action data and task context. It does not accept
@@ -93,18 +93,41 @@ Tools implement narrow operations and validate their own inputs even after a
 policy decision. Output is bounded by bytes, lines, matches, and duration before
 it is returned to either the model or user.
 
-File operations use workspace-relative paths. On Linux, the implementation
-should use file-descriptor-relative operations and secure resolution beneath an
-already-open workspace root. Symlinks and special files are denied by default.
+File operations use workspace-relative paths. On Linux, the implementation uses
+file-descriptor-relative operations beneath an already-open workspace root and
+opens path components without following symlinks. `Clean`, `resolve`, and
+string-prefix comparisons are not authorization mechanisms. A future `openat2`
+backend may strengthen and simplify this implementation, but it must preserve
+the same package contract.
+
+Every tool result has per-call byte, line, match, and duration limits plus a
+task-wide context budget. Truncation is explicit in the structured result.
 
 ### Workspace manager
 
-Creates a per-task disposable copy beneath application-owned state. The original
-directory is initially read-only input. Changes are reviewed as a diff and are
-promoted to the original only through a separate, explicit operation.
+Creates a per-task disposable copy beneath application-owned state. The copy
+walker never follows symlinks and refuses files that change identity while being
+copied. It applies built-in secret exclusions, user exclusions, and `.gitignore`
+exclusions before reading file bytes. The same exclusions are enforced again by
+read and search tools.
 
-Promotion must detect that the original changed after the task began. On a
-conflict, it stops rather than overwriting newer user work.
+The original directory is read-only input. Each successful patch produces a new
+workspace generation. The controller exports a diff artifact; it has no MVP
+operation that writes the diff back into the original directory. Workspaces and
+containers are destroyed after export or discard. Retaining a workspace is an
+explicit user action, not the default.
+
+### Patch transaction
+
+The controller serializes workspace mutations. `apply_patch` parses and
+validates every path and hunk against the current generation, constructs the
+complete result in an unreferenced staging generation, and checks its manifest.
+Only then does task state point to the new generation. A validation, write, or
+crash failure leaves the previous generation active and returns a structured
+failure; incomplete generations are never exposed to the model as current.
+
+This is atomic from the task state machine's perspective. It does not claim that
+separate host files can be updated in one filesystem transaction.
 
 ### Sandbox runner
 
@@ -122,22 +145,33 @@ Executes only policy-selected recipes. The initial Docker profile should use:
 - CPU, memory, PID, output, and wall-clock limits;
 - no host devices, host namespaces, credentials, or Docker socket.
 
+The MVP defaults are 512 MiB memory, 1 CPU, 128 PIDs, 60 seconds wall-clock,
+128 MiB temporary storage, and 1 MiB combined stdout/stderr. These are finite,
+strictly validated trusted configuration values; “unlimited” is not accepted.
+
 The image and all runtime security flags come from trusted configuration, never
 from a model action.
 
 ### Approval service
 
-Displays the exact normalized action, affected paths, command recipe, network
-destination if any, and expected impact. Approval applies to one action and
-expires. A vague approval such as “allow future commands” is out of scope for
-the MVP.
+Displays normalized controller data, never model-authored approval prose. It can
+approve one action or issue a bounded grant containing the exact recipe digest,
+task identifier, maximum uses, and expiry. Any recipe or policy change
+invalidates the grant. General per-task authority is not supported.
+
+Read/search/diff and small patches in the disposable workspace are automatic and
+logged. High-volume or destructive-looking patches may cross a policy threshold
+and require approval. `run_task` requires a valid recipe grant.
 
 ### Audit log
 
-Records task lifecycle events, proposed actions, decisions, approvals, execution
-metadata, exit status, resource-limit termination, and promotion. Logs contain
-hashes or bounded previews rather than complete sensitive file contents. Secret
-redaction happens before persistence.
+Records task lifecycle events, proposed actions, decisions, grants, execution
+metadata, exit status, resource-limit termination, patch export, and cleanup.
+Callers construct audit-safe events from allowlisted fields; raw prompts, file
+contents, command output, and environment data are not accepted by the sink.
+Redaction and size limiting happen before serialization and persistence.
+Append-only JSONL is the MVP format. Hash chaining is a documented fast-follow,
+not an MVP integrity claim.
 
 ## Request lifecycle
 
@@ -155,12 +189,13 @@ User task
   -> return result to model
   -> stop on completion or configured limit
   -> show final diff and verification results
-  -> optionally promote after user approval
+  -> export a reviewable patch
+  -> destroy the task workspace after export or discard
 ```
 
 ## Configuration layers
 
-Configuration is merged from most restrictive to least specific:
+Strict TOML configuration is merged from most restrictive to least specific:
 
 1. compiled security invariants that configuration cannot disable;
 2. administrator or installation policy;
@@ -175,7 +210,7 @@ forbidden by a higher layer.
 
 - Whether Linux Landlock should be added beneath or instead of the container
   backend for file-only tools.
-- Whether workspace promotion uses patches, a local clone, or filesystem
-  snapshots.
 - How approved network access will be allowlisted and observed.
 - Whether stronger isolation such as a microVM is needed for multi-user use.
+- Whether an `openat2` native helper provides enough benefit over the initial
+  descriptor-relative Python implementation.

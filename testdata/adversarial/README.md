@@ -15,7 +15,7 @@ Planned fixture groups:
 - fork, memory, disk, and output exhaustion;
 - package lifecycle scripts;
 - approval replay and misleading descriptions;
-- concurrent source changes during promotion.
+- attempts by the controller or sandbox to modify the original source.
 
 Every fixture needs an expected denial or containment result and an expected
 audit event. Tests should invoke fixtures only inside the sandbox designed for
