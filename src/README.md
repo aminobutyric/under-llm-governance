@@ -1,6 +1,6 @@
 # Python source layout
 
-Phase 0 will create the `src/ulg` package with these boundaries:
+Phase 0 establishes the `src/ulg` package with these boundaries:
 
 | Package | Responsibility |
 |---|---|
@@ -17,3 +17,9 @@ Phase 0 will create the `src/ulg` package with these boundaries:
 
 Task code never runs in the controller process. `policy` does not depend on a
 model provider, and raw untrusted payloads do not cross into the audit sink.
+
+The current executable slice includes strict action/configuration models, the
+deterministic baseline policy, an audit-safe event schema, a fake model adapter,
+and `ulg dry-run`. Tool, workspace, sandbox, and approval packages currently
+expose contracts only; effectful implementations arrive with their security
+tests in later phases.

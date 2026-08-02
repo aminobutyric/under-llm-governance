@@ -4,10 +4,11 @@ A security-first, local coding-agent project. The agent will use a local model
 through Ollama, work within a user-selected project, and operate under
 enforceable least-privilege controls.
 
-This repository is currently in the architecture and planning stage. The locked
-implementation baseline is Linux, Python 3.11+, `uv`, rootless Docker, and a
-locally bound Ollama server. Ollama is an adapter, not a hard dependency of the
-core design.
+This repository is in its first implementation phase. The locked baseline is
+Linux, Python 3.11+, `uv`, rootless Docker, and a locally bound Ollama server.
+Ollama is an adapter, not a hard dependency of the core design.
+
+The repository is licensed under `MPL-2.0`.
 
 ## Core idea
 
@@ -40,7 +41,7 @@ a permission boundary.
 - Every proposed and executed action produces an audit record with secrets
   redacted before serialization or persistence.
 
-## Planned repository layout
+## Repository layout
 
 ```text
 pyproject.toml               Package metadata, CLI entry point, tool settings
@@ -58,13 +59,28 @@ src/ulg/
   audit/                     Structured pre-write redaction and JSONL sink
   config/                    Strict TOML configuration loading
 tests/                       Unit, integration, and security suites
+.github/workflows/ci.yml     Locked lint, type-check, and test workflow
 config/                      Example trusted policy files
 docs/                        Architecture, security model, plans, and ADRs
 testdata/adversarial/        Inert injection, path, and resource fixtures
 ```
 
-Implementation directories will be introduced phase by phase instead of being
-filled with empty placeholders.
+The Phase 0 package contains the controller dry-run path, strict action and
+configuration schemas, deterministic policy, audit-safe events, a fake model,
+and explicit contracts for approvals, tools, workspaces, and sandboxes. Concrete
+effectful implementations are introduced only in the development phase that
+secures and tests them.
+
+## Quick start
+
+```console
+uv sync
+uv run ulg dry-run
+uv run pytest
+```
+
+The dry run crosses model, schema, policy, controller, and audit boundaries but
+does not read a workspace or execute a tool.
 
 ## Documentation
 
@@ -74,6 +90,8 @@ filled with empty placeholders.
 - [Trust-boundary decision](docs/decisions/0001-trusted-controller.md)
 - [Python implementation baseline](docs/decisions/0002-python-baseline.md)
 - [Security mechanisms](docs/decisions/0003-security-mechanisms.md)
+- [License decision](docs/decisions/0004-license-mpl.md)
+- [Open-core strategy](docs/open-core-strategy.md)
 - [Example policy](config/policy.example.toml)
 
 ## Initial scope
