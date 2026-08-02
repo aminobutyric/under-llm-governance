@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
+import os
+import stat
 from pathlib import Path
 from typing import Protocol
 
@@ -29,5 +31,24 @@ class JsonlAuditSink:
         encoded = (event.model_dump_json() + "\n").encode()
         if len(encoded) > self._max_event_bytes:
             raise ValueError("audit event exceeds configured byte limit")
-        with self._path.open("ab") as stream:
-            stream.write(encoded)
+        try:
+            file_fd = os.open(
+                self._path,
+                os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+                0o600,
+            )
+        except OSError as error:
+            raise ValueError("audit path cannot be opened safely") from error
+        try:
+            file_stat = os.fstat(file_fd)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise ValueError("audit sink is not a regular file")
+            view = memoryview(encoded)
+            while view:
+                written = os.write(file_fd, view)
+                if written <= 0:
+                    raise ValueError("audit event append made no progress")
+                view = view[written:]
+            os.fsync(file_fd)
+        finally:
+            os.close(file_fd)

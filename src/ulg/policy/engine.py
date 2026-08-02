@@ -2,8 +2,18 @@
 
 from typing import Protocol
 
-from ulg.actions import Action
+from ulg.actions import (
+    Action,
+    ApplyPatchAction,
+    CompleteAction,
+    ListFilesAction,
+    ReadFileAction,
+    SearchTextAction,
+    ShowDiffAction,
+)
+from ulg.config.models import ApplyPatchTool
 from ulg.policy.models import Decision, DecisionKind
+from ulg.workspace.patches import PatchError, parse_unified_diff
 
 
 class PolicyEngine(Protocol):
@@ -11,11 +21,46 @@ class PolicyEngine(Protocol):
 
 
 class BaselinePolicy:
-    """Small Phase 0 policy; effectful tools are not connected yet."""
+    """Deterministic MVP policy for reads, diffs, and disposable patches."""
+
+    def __init__(self, patch_settings: ApplyPatchTool | None = None) -> None:
+        self._patch_settings = patch_settings
 
     def evaluate(self, action: Action) -> Decision:
+        if isinstance(action, ApplyPatchAction):
+            kind, reason_code = self._evaluate_patch(action)
+        elif isinstance(action, ShowDiffAction):
+            kind = DecisionKind.ALLOW
+            reason_code = "baseline_diff"
+        elif isinstance(
+            action,
+            (ListFilesAction, ReadFileAction, SearchTextAction, CompleteAction),
+        ):
+            kind = DecisionKind.ALLOW
+            reason_code = "baseline_read_only"
+        else:
+            kind = DecisionKind.DENY
+            reason_code = "action_not_allowed"
         return Decision(
             action_id=action.action_id,
-            kind=DecisionKind.ALLOW,
-            reason_code="phase0_dry_run",
+            kind=kind,
+            reason_code=reason_code,
         )
+
+    def _evaluate_patch(self, action: ApplyPatchAction) -> tuple[DecisionKind, str]:
+        if self._patch_settings is None:
+            return DecisionKind.DENY, "patch_policy_unavailable"
+        try:
+            patches = parse_unified_diff(action.patch)
+        except PatchError:
+            return DecisionKind.DENY, "invalid_patch"
+        if len(action.patch.encode()) > self._patch_settings.max_patch_bytes:
+            return DecisionKind.DENY, "patch_too_large"
+        if len(patches) > self._patch_settings.max_changed_files:
+            return DecisionKind.DENY, "too_many_changed_files"
+        if len(patches) > self._patch_settings.ask_above_changed_files or (
+            self._patch_settings.ask_on_delete
+            and any(patch.operation == "delete" for patch in patches)
+        ):
+            return DecisionKind.ASK, "patch_requires_approval"
+        return DecisionKind.ALLOW, "baseline_small_patch"

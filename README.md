@@ -4,9 +4,11 @@ A security-first, local coding-agent project. The agent will use a local model
 through Ollama, work within a user-selected project, and operate under
 enforceable least-privilege controls.
 
-This repository is in its first implementation phase. The locked baseline is
-Linux, Python 3.11+, `uv`, rootless Docker, and a locally bound Ollama server.
-Ollama is an adapter, not a hard dependency of the core design.
+This repository has executable read-only inspection and disposable editing
+workflows and is working toward the sandbox and approval phases of its MVP. The
+locked baseline is Linux, Python 3.11+, `uv`, rootless Docker, and a locally
+bound Ollama server. Ollama is an adapter, not a hard dependency of the core
+design.
 
 The repository is licensed under `MPL-2.0`.
 
@@ -82,11 +84,41 @@ uv run pytest
 The dry run crosses model, schema, policy, controller, and audit boundaries but
 does not read a workspace or execute a tool.
 
+To use an already-installed local Ollama model against a disposable read-only
+snapshot:
+
+```console
+uv run ulg inspect \
+  --workspace /path/to/project \
+  --task "Explain this project and cite the files you read" \
+  --model qwen3:14b
+```
+
+The original project is never the model's working directory. Task snapshots are
+destroyed after inspection, while allowlisted audit events remain under the
+application state directory.
+
+To ask the model to produce a reviewable patch without modifying the original
+project:
+
+```console
+uv run ulg run \
+  --workspace /path/to/project \
+  --task "Make the requested change" \
+  --output /path/to/new-change.patch \
+  --model qwen3:14b
+```
+
+The output path must not already exist. The exported unified diff is the only
+artifact written outside application state; applying it to the original project
+is deliberately left to the user.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security-model.md)
 - [Development plan](docs/development-plan.md)
+- [MVP implementation status](docs/mvp-status.md)
 - [Trust-boundary decision](docs/decisions/0001-trusted-controller.md)
 - [Python implementation baseline](docs/decisions/0002-python-baseline.md)
 - [Security mechanisms](docs/decisions/0003-security-mechanisms.md)

@@ -1,20 +1,11 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from typing import Protocol
-from uuid import UUID
-
-from pydantic import BaseModel, ConfigDict, Field
 
 from ulg.actions import Action
+from ulg.tools.results import ToolResult
 
-
-class ToolResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    action_id: UUID
-    ok: bool
-    summary: str = Field(max_length=4_000)
-    truncated: bool = False
+__all__ = ["ToolResult", "ToolRunner"]
 
 
 class ToolRunner(Protocol):

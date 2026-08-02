@@ -26,9 +26,19 @@ class StrictModel(BaseModel):
 
 class ModelSettings(StrictModel):
     provider: Literal["ollama"]
+    name: str = Field(
+        min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._/-]+(?::[A-Za-z0-9._-]+)?$"
+    )
     endpoint: str
     request_timeout_seconds: PositiveInt
     max_response_bytes: PositiveInt
+
+    @field_validator("name")
+    @classmethod
+    def reject_cloud_model_names(cls, value: str) -> str:
+        if "cloud" in value.casefold():
+            raise ValueError("MVP model must be local, not an Ollama cloud model")
+        return value
 
     @field_validator("endpoint")
     @classmethod
@@ -54,6 +64,8 @@ class ModelSettings(StrictModel):
 class TaskSettings(StrictModel):
     max_turns: PositiveInt
     max_tool_calls: PositiveInt
+    max_repeated_actions: PositiveInt
+    max_model_failures: PositiveInt
     max_duration_seconds: PositiveInt
     max_context_bytes: PositiveInt
 
@@ -61,6 +73,9 @@ class TaskSettings(StrictModel):
 class WorkspaceSettings(StrictModel):
     mode: Literal["disposable_generations"]
     max_bytes: PositiveInt
+    max_files: PositiveInt
+    max_generations: PositiveInt
+    max_manifest_bytes: PositiveInt
     retain_after_finish: bool
     respect_gitignore: bool
     deny_symlinks: bool
@@ -74,6 +89,8 @@ class WorkspaceSettings(StrictModel):
     def enforce_workspace_invariants(self) -> WorkspaceSettings:
         if not self.deny_symlinks or not self.deny_special_files:
             raise ValueError("symlinks and special files must remain denied")
+        if self.retain_after_finish:
+            raise ValueError("workspace retention is not supported by the MVP")
         return self
 
 
@@ -81,6 +98,7 @@ class ListFilesTool(StrictModel):
     decision: DecisionName
     max_entries: PositiveInt
     max_depth: PositiveInt
+    max_output_bytes: PositiveInt
 
 
 class ReadFileTool(StrictModel):
@@ -196,4 +214,6 @@ class AppConfig(StrictModel):
         allowed = set(self.tools.run_task.allowed_recipes)
         if configured != allowed:
             raise ValueError("configured recipes must exactly match allowed_recipes")
+        if self.model.request_timeout_seconds > self.task.max_duration_seconds:
+            raise ValueError("model request timeout cannot exceed task duration")
         return self

@@ -9,6 +9,12 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 
+def _validate_workspace_path(value: str) -> str:
+    if value.startswith("/") or "\x00" in value or ".." in PurePosixPath(value).parts:
+        raise ValueError("path must be a contained, non-NUL relative path")
+    return value
+
+
 class ActionBase(BaseModel):
     """Fields shared by every untrusted model-proposed action."""
 
@@ -23,17 +29,34 @@ class ActionBase(BaseModel):
 class ListFilesAction(ActionBase):
     type: Literal["list_files"] = "list_files"
     path: str = Field(default=".", min_length=1, max_length=4096)
+    recursive: bool = True
 
-    @field_validator("path")
-    @classmethod
-    def require_relative_path(cls, value: str) -> str:
-        if (
-            value.startswith("/")
-            or "\x00" in value
-            or ".." in PurePosixPath(value).parts
-        ):
-            raise ValueError("path must be a contained, non-NUL relative path")
-        return value
+    _require_relative_path = field_validator("path")(_validate_workspace_path)
+
+
+class ReadFileAction(ActionBase):
+    type: Literal["read_file"] = "read_file"
+    path: str = Field(min_length=1, max_length=4096)
+
+    _require_relative_path = field_validator("path")(_validate_workspace_path)
+
+
+class SearchTextAction(ActionBase):
+    type: Literal["search_text"] = "search_text"
+    path: str = Field(default=".", min_length=1, max_length=4096)
+    query: str = Field(min_length=1, max_length=1_000)
+    case_sensitive: bool = True
+
+    _require_relative_path = field_validator("path")(_validate_workspace_path)
+
+
+class ApplyPatchAction(ActionBase):
+    type: Literal["apply_patch"] = "apply_patch"
+    patch: str = Field(min_length=1, max_length=1_048_576)
+
+
+class ShowDiffAction(ActionBase):
+    type: Literal["show_diff"] = "show_diff"
 
 
 class CompleteAction(ActionBase):
@@ -41,7 +64,15 @@ class CompleteAction(ActionBase):
     summary: str = Field(min_length=1, max_length=4_000)
 
 
-Action = Annotated[ListFilesAction | CompleteAction, Field(discriminator="type")]
+Action = Annotated[
+    ListFilesAction
+    | ReadFileAction
+    | SearchTextAction
+    | ApplyPatchAction
+    | ShowDiffAction
+    | CompleteAction,
+    Field(discriminator="type"),
+]
 _ACTION_ADAPTER: TypeAdapter[Action] = TypeAdapter(Action)
 
 
@@ -49,3 +80,45 @@ def parse_action(payload: object) -> Action:
     """Validate an untrusted action payload and reject unknown fields/types."""
 
     return _ACTION_ADAPTER.validate_python(payload)
+
+
+def parse_action_json(payload: str | bytes) -> Action:
+    """Validate JSON from a model while retaining strict JSON-aware types."""
+
+    return _ACTION_ADAPTER.validate_json(payload)
+
+
+def action_json_schema() -> dict[str, object]:
+    return _ACTION_ADAPTER.json_schema()
+
+
+def ollama_action_json_schema() -> dict[str, object]:
+    """Return a grammar-friendly hint; strict validation still uses ``Action``."""
+
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"type": "integer", "const": 1},
+            "task_id": {"type": "string"},
+            "rationale": {"type": "string", "minLength": 1, "maxLength": 500},
+            "type": {
+                "type": "string",
+                "enum": [
+                    "list_files",
+                    "read_file",
+                    "search_text",
+                    "apply_patch",
+                    "show_diff",
+                    "complete",
+                ],
+            },
+            "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "recursive": {"type": "boolean"},
+            "query": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "case_sensitive": {"type": "boolean"},
+            "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+            "patch": {"type": "string", "minLength": 1, "maxLength": 1048576},
+        },
+        "required": ["schema_version", "task_id", "rationale", "type"],
+    }
