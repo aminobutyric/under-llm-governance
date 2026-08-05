@@ -122,7 +122,7 @@ Status: complete.
   outcome, duration, output byte count, truncation, timeout, and cancellation,
   but never command output or environment values.
 
-On 2026-08-05, all Python checks and 79 non-Docker automated tests passed. Four
+On 2026-08-05, all Python checks and 80 non-Docker automated tests passed. Four
 live rootless-Docker acceptance groups then passed: representative Python, Go,
 and JavaScript checks; network/socket/capability/privilege containment; timeout,
 output-flood, and workspace disk limits; and PID, memory, environment-secret,

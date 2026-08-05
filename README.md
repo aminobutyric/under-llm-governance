@@ -4,11 +4,11 @@ A security-first, local coding-agent project. The agent will use a local model
 through Ollama, work within a user-selected project, and operate under
 enforceable least-privilege controls.
 
-This repository has executable read-only inspection and disposable editing
-workflows and is working toward the sandbox and approval phases of its MVP. The
-locked baseline is Linux, Python 3.11+, `uv`, rootless Docker, and a locally
-bound Ollama server. Ollama is an adapter, not a hard dependency of the core
-design.
+Phases 0–3 are implemented: executable contracts, read-only inspection,
+disposable editing with patch export, and offline rootless-Docker verification.
+Phase 4 scoped approvals remain before the complete MVP. The locked baseline is
+Linux, Python 3.11+, `uv`, rootless Docker, and a locally bound Ollama server.
+Ollama is an adapter, not a hard dependency of the core design.
 
 The repository is licensed under `MPL-2.0`.
 
@@ -16,9 +16,10 @@ The repository is licensed under `MPL-2.0`.
 
 The model never receives ambient access to the host. It proposes typed actions
 such as reading a relative path, applying a patch, or running a configured test.
-A trusted controller validates every proposal, applies policy, requests human
-approval when necessary, and executes accepted actions in an isolated task
-workspace.
+A trusted controller validates every proposal and applies deterministic policy.
+Implemented `allow` decisions execute inside disposable boundaries; `ask`
+decisions remain blocked until Phase 4 adds trusted approval presentation and
+exact grants.
 
 Security instructions in a system prompt are useful guidance, but they are not
 a permission boundary.
@@ -37,9 +38,9 @@ a permission boundary.
   default.
 - Model output, repository content, tool output, and dependency output are all
   treated as untrusted input.
-- Commands require a narrow approval grant for an exact configured recipe;
-  networked, credentialed, or externally visible actions are absent from the
-  MVP.
+- Model-requested commands are policy-gated and will require a narrow Phase 4
+  approval grant for an exact configured recipe. The implemented Phase 3
+  `sandbox-run` command is an explicit operator action.
 - Every proposed and executed action produces an audit record with secrets
   redacted before serialization or persistence.
 
@@ -61,26 +62,46 @@ src/ulg/
   audit/                     Structured pre-write redaction and JSONL sink
   config/                    Strict TOML configuration loading
 tests/                       Unit, integration, and security suites
+runner/                      Digest-pinned multi-language sandbox image
 .github/workflows/ci.yml     Locked lint, type-check, and test workflow
 config/                      Example trusted policy files
 docs/                        Architecture, security model, plans, and ADRs
 testdata/adversarial/        Inert injection, path, and resource fixtures
+testdata/phase3/             Python, Go, and JavaScript smoke projects
 ```
 
-The Phase 0 package contains the controller dry-run path, strict action and
-configuration schemas, deterministic policy, audit-safe events, a fake model,
-and explicit contracts for approvals, tools, workspaces, and sandboxes. Concrete
-effectful implementations are introduced only in the development phase that
-secures and tests them.
+The current implementation includes strict contracts, deterministic policy,
+bounded Ollama access, disposable workspace generations, reviewed patch export,
+the fixed offline sandbox, normalized audit events, and manual acceptance paths.
+See [MVP implementation status](docs/mvp-status.md) for evidence and the exact
+Phase 4 boundary.
 
 ## Quick start
 
 ```console
-uv sync
-uv run ulg dry-run
-uv run ulg sandbox-preflight
-uv run pytest
+uv sync --frozen
+uv run --frozen ulg dry-run
+uv run --frozen ulg sandbox-preflight
+uv run --frozen pytest
 ```
+
+These commands assume the repository root is the current directory. For a
+command that works from any directory, make both the ULG checkout and trusted
+policy explicit:
+
+```console
+export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
+export ULG_CONFIG="$ULG_REPO/config/policy.example.toml"
+
+uv run --project "$ULG_REPO" --frozen ulg inspect \
+  --workspace /absolute/path/to/small-project \
+  --config "$ULG_CONFIG" \
+  --task "Explain this project and cite the files you read" \
+  --model qwen3:14b
+```
+
+See the [CLI guide](docs/cli.md) for path rules, optional editable installation,
+all commands, and exit codes.
 
 ## Offline sandbox setup
 
@@ -91,7 +112,7 @@ ID, and place the exact value in `sandbox.image_digest` in your trusted policy:
 ```console
 docker build --pull=false --tag ulg-runner:phase3 runner
 docker image inspect ulg-runner:phase3 --format '{{.Id}}'
-uv run ulg sandbox-preflight
+uv run --frozen ulg sandbox-preflight
 ```
 
 The example policy is pinned to the image produced during the Phase 3
@@ -103,10 +124,17 @@ Run the checked-in offline smoke projects without exposing their original
 directories to a writable mount:
 
 ```console
-uv run ulg sandbox-run --workspace testdata/phase3/python --recipe test
-uv run ulg sandbox-run --workspace testdata/phase3/go --recipe go_test
-uv run ulg sandbox-run \
+uv run --frozen ulg sandbox-run \
+  --workspace testdata/phase3/python \
+  --config config/policy.example.toml \
+  --recipe test
+uv run --frozen ulg sandbox-run \
+  --workspace testdata/phase3/go \
+  --config config/policy.example.toml \
+  --recipe go_test
+uv run --frozen ulg sandbox-run \
   --workspace testdata/phase3/javascript \
+  --config config/policy.example.toml \
   --recipe javascript_test
 ```
 
@@ -121,8 +149,9 @@ To use an already-installed local Ollama model against a disposable read-only
 snapshot:
 
 ```console
-uv run ulg inspect \
+uv run --frozen ulg inspect \
   --workspace /path/to/project \
+  --config config/policy.example.toml \
   --task "Explain this project and cite the files you read" \
   --model qwen3:14b
 ```
@@ -135,8 +164,9 @@ To ask the model to produce a reviewable patch without modifying the original
 project:
 
 ```console
-uv run ulg run \
+uv run --frozen ulg run \
   --workspace /path/to/project \
+  --config config/policy.example.toml \
   --task "Make the requested change" \
   --output /path/to/new-change.patch \
   --model qwen3:14b
@@ -152,6 +182,8 @@ is deliberately left to the user.
 - [Security model](docs/security-model.md)
 - [Development plan](docs/development-plan.md)
 - [MVP implementation status](docs/mvp-status.md)
+- [CLI guide](docs/cli.md)
+- [Testing through Phase 3](docs/testing.md)
 - [Trust-boundary decision](docs/decisions/0001-trusted-controller.md)
 - [Python implementation baseline](docs/decisions/0002-python-baseline.md)
 - [Security mechanisms](docs/decisions/0003-security-mechanisms.md)

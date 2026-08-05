@@ -40,65 +40,140 @@ from ulg.workspace import (
 )
 
 
+class _HelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+    def _get_help_string(self, action: argparse.Action) -> str:
+        if action.required or action.default is None:
+            return action.help or ""
+        return super()._get_help_string(action) or ""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ulg")
+    parser = argparse.ArgumentParser(
+        prog="ulg",
+        description=(
+            "Inspect, edit, and verify a selected directory through "
+            "least-privilege local workflows."
+        ),
+        formatter_class=_HelpFormatter,
+    )
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     dry_run = subparsers.add_parser(
-        "dry-run", help="exercise model, schema, policy, and audit contracts"
+        "dry-run",
+        help="exercise model, schema, policy, and audit contracts",
+        formatter_class=_HelpFormatter,
     )
-    dry_run.add_argument("--path", default=".")
+    dry_run.add_argument(
+        "--path",
+        default=".",
+        help="relative action path used only by the contract dry run",
+    )
 
     subparsers.add_parser(
         "sandbox-preflight",
         help="verify that the local Docker daemon meets sandbox requirements",
+        formatter_class=_HelpFormatter,
     )
 
     sandbox_run = subparsers.add_parser(
         "sandbox-run",
         help="run one trusted recipe in a disposable offline sandbox",
+        formatter_class=_HelpFormatter,
     )
-    sandbox_run.add_argument("--workspace", required=True, type=Path)
-    sandbox_run.add_argument("--recipe", required=True)
     sandbox_run.add_argument(
-        "--config",
+        "--workspace",
+        required=True,
         type=Path,
-        default=Path("config/policy.example.toml"),
+        help="source directory to snapshot; relative to the current directory",
     )
-    sandbox_run.add_argument("--state-dir", type=Path, default=None)
+    sandbox_run.add_argument(
+        "--recipe",
+        required=True,
+        help="recipe name allowlisted in the trusted policy",
+    )
+    _add_config_argument(sandbox_run)
+    _add_state_argument(sandbox_run)
 
     inspect = subparsers.add_parser(
-        "inspect", help="inspect a disposable read-only snapshot with Ollama"
+        "inspect",
+        help="inspect a disposable read-only snapshot with Ollama",
+        formatter_class=_HelpFormatter,
     )
-    inspect.add_argument("--workspace", required=True, type=Path)
-    inspect.add_argument("--task", required=True)
+    inspect.add_argument(
+        "--workspace",
+        required=True,
+        type=Path,
+        help="source directory to snapshot; relative to the current directory",
+    )
+    inspect.add_argument(
+        "--task",
+        required=True,
+        help="inspection request sent to the selected local model",
+    )
     inspect.add_argument(
         "--model",
         default=None,
         help="override the trusted local model name from the policy file",
     )
-    inspect.add_argument(
-        "--config",
-        type=Path,
-        default=Path("config/policy.example.toml"),
-    )
-    inspect.add_argument("--state-dir", type=Path, default=None)
+    _add_config_argument(inspect)
+    _add_state_argument(inspect)
 
     run = subparsers.add_parser(
-        "run", help="produce a reviewed patch in a disposable workspace"
+        "run",
+        help="produce a reviewed patch in a disposable workspace",
+        formatter_class=_HelpFormatter,
     )
-    run.add_argument("--workspace", required=True, type=Path)
-    run.add_argument("--task", required=True)
-    run.add_argument("--output", required=True, type=Path)
-    run.add_argument("--model", default=None)
     run.add_argument(
+        "--workspace",
+        required=True,
+        type=Path,
+        help="source directory to snapshot; relative to the current directory",
+    )
+    run.add_argument(
+        "--task",
+        required=True,
+        help="coding request sent to the selected local model",
+    )
+    run.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="new patch path; must not exist and must be outside the workspace",
+    )
+    run.add_argument(
+        "--model",
+        default=None,
+        help="override the trusted local model name from the policy file",
+    )
+    _add_config_argument(run)
+    _add_state_argument(run)
+    return parser
+
+
+def _add_config_argument(parser: argparse.ArgumentParser) -> None:
+    configured = os.environ.get("ULG_CONFIG")
+    parser.add_argument(
         "--config",
         type=Path,
-        default=Path("config/policy.example.toml"),
+        default=Path(configured) if configured else Path("config/policy.example.toml"),
+        help=(
+            "trusted policy TOML; set ULG_CONFIG for an invocation-independent "
+            "default (a relative path is resolved from the current directory)"
+        ),
     )
-    run.add_argument("--state-dir", type=Path, default=None)
-    return parser
+
+
+def _add_state_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        default=None,
+        help=(
+            "application state root outside the workspace; defaults to "
+            "$XDG_STATE_HOME/ulg or ~/.local/state/ulg"
+        ),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
