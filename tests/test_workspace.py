@@ -211,3 +211,23 @@ def test_secure_root_fails_if_file_becomes_symlink_during_open(
         secure_root.open_regular_file("safe.txt")
 
     assert swapped is True
+
+
+def test_sealed_sandbox_generation_remains_verified_and_discardable(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "nested").mkdir()
+    (source / "nested" / "safe.txt").write_text("safe")
+    config = load_config(Path("config/policy.example.toml"))
+    manager = SnapshotWorkspaceManager(tmp_path / "state", config.workspace)
+    workspace = manager.create(source=source, task_id=uuid4())
+
+    manager.seal_for_sandbox(workspace)
+
+    assert manager.read_manifest(workspace, verify=True).file_count == 1
+    assert workspace.root.stat().st_mode & 0o777 == 0o555
+    assert (workspace.root / "nested" / "safe.txt").stat().st_mode & 0o777 == 0o444
+    manager.discard(workspace)
+    assert not workspace.root.parent.exists()

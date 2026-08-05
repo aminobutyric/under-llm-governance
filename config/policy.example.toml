@@ -68,7 +68,7 @@ max_output_bytes = 1_048_576
 
 [tools.run_task]
 decision = "ask"
-allowed_recipes = ["test", "lint", "format"]
+allowed_recipes = ["test", "lint", "format", "go_test", "javascript_test"]
 grant_max_uses = 3
 grant_ttl_seconds = 600
 
@@ -86,6 +86,10 @@ decision = "deny"
 
 [sandbox]
 backend = "rootless_docker"
+image = "ulg-runner:phase3"
+image_digest = "sha256:151dc0f333af6ab697f300adf95b6d2f16a66555b1d8ec20d3c09c3c383b9bdb"
+container_uid = 65532
+container_gid = 65532
 network = "none"
 read_only_root = true
 drop_capabilities = "all"
@@ -96,6 +100,7 @@ pids = 128
 wall_time_seconds = 60
 max_combined_output_bytes = 1_048_576
 tmpfs_bytes = 134_217_728
+workspace_tmpfs_bytes = 268_435_456
 
 # Recipes are trusted configuration. The model may select a recipe by name but
 # may not supply or alter argv, environment, image, mounts, or sandbox flags.
@@ -106,7 +111,13 @@ argv = ["python", "-m", "pytest", "-q"]
 argv = ["ruff", "check", "."]
 
 [recipes.format]
-argv = ["ruff", "format", "."]
+argv = ["ruff", "format", "--check", "."]
+
+[recipes.go_test]
+argv = ["go", "test", "./..."]
+
+[recipes.javascript_test]
+argv = ["node", "--test"]
 
 [export]
 format = "unified_diff"

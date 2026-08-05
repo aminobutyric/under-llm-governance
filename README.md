@@ -78,8 +78,41 @@ secures and tests them.
 ```console
 uv sync
 uv run ulg dry-run
+uv run ulg sandbox-preflight
 uv run pytest
 ```
+
+## Offline sandbox setup
+
+Phase 3 requires rootless Docker with cgroup v2 and the systemd cgroup driver.
+Build the trusted multi-language runner through that daemon, inspect its image
+ID, and place the exact value in `sandbox.image_digest` in your trusted policy:
+
+```console
+docker build --pull=false --tag ulg-runner:phase3 runner
+docker image inspect ulg-runner:phase3 --format '{{.Id}}'
+uv run ulg sandbox-preflight
+```
+
+The example policy is pinned to the image produced during the Phase 3
+acceptance run. A later rebuild can have a different ID because Debian package
+repositories change; replacing the configured digest must be an explicit
+trusted-operator action.
+
+Run the checked-in offline smoke projects without exposing their original
+directories to a writable mount:
+
+```console
+uv run ulg sandbox-run --workspace testdata/phase3/python --recipe test
+uv run ulg sandbox-run --workspace testdata/phase3/go --recipe go_test
+uv run ulg sandbox-run \
+  --workspace testdata/phase3/javascript \
+  --recipe javascript_test
+```
+
+`sandbox-run` is the direct operator acceptance path. Model-requested
+`run_task` remains policy-gated until scoped approval grants are implemented in
+Phase 4.
 
 The dry run crosses model, schema, policy, controller, and audit boundaries but
 does not read a workspace or execute a tool.

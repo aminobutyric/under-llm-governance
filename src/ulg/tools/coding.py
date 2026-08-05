@@ -9,12 +9,19 @@ from ulg.actions import (
     ApplyPatchAction,
     ListFilesAction,
     ReadFileAction,
+    RunTaskAction,
     SearchTextAction,
     ShowDiffAction,
 )
 from ulg.config.models import ToolsSettings
+from ulg.sandbox import SandboxRunner
 from ulg.tools.read_only import ReadOnlyTools
-from ulg.tools.results import ApplyPatchResult, ShowDiffResult, ToolResult
+from ulg.tools.results import (
+    ApplyPatchResult,
+    RunTaskResult,
+    ShowDiffResult,
+    ToolResult,
+)
 from ulg.workspace import (
     GenerationManifest,
     PatchError,
@@ -35,10 +42,12 @@ class CodingTools:
         settings: ToolsSettings,
         *,
         original_root: Path,
+        sandbox: SandboxRunner | None = None,
     ) -> None:
         self._workspace = workspace
         self._manager = manager
         self._settings = settings
+        self._sandbox = sandbox
         self._editor = WorkspaceEditor(
             manager,
             manager.exclusion_policy,
@@ -66,6 +75,8 @@ class CodingTools:
             return self._apply_patch(action)
         if isinstance(action, ShowDiffAction):
             return self._show_diff(action)
+        if isinstance(action, RunTaskAction):
+            return self._run_task(action)
         raise TypeError(f"action {action.type!r} is not a coding tool action")
 
     def build_diff(self) -> str:
@@ -137,4 +148,29 @@ class CodingTools:
             truncated=truncated,
             diff=diff,
             bytes_returned=len(encoded),
+        )
+
+    def _run_task(self, action: RunTaskAction) -> RunTaskResult:
+        if self._sandbox is None:
+            raise RuntimeError("sandbox runner is not configured")
+        self._manager.seal_for_sandbox(self._workspace)
+        result = self._sandbox.run(
+            recipe_name=action.recipe_name,
+            workspace=self._workspace.root,
+        )
+        return RunTaskResult(
+            action_id=action.action_id,
+            ok=result.ok,
+            error_code=result.error_code,
+            truncated=result.output_truncated,
+            recipe_name=result.recipe_name,
+            recipe_digest=result.recipe_digest,
+            image_digest=result.image_digest,
+            sandbox_profile_digest=result.sandbox_profile_digest,
+            exit_code=result.exit_code,
+            timed_out=result.timed_out,
+            cancelled=result.cancelled,
+            duration_ms=result.duration_ms,
+            output=result.output,
+            output_bytes=result.output_bytes,
         )

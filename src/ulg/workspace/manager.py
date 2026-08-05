@@ -133,7 +133,42 @@ class SnapshotWorkspaceManager:
         ):
             raise SnapshotError("refusing to discard an unowned workspace path")
         if task_root.exists():
+            for root, directory_names, _ in os.walk(task_root, followlinks=False):
+                Path(root).chmod(0o700)
+                for name in directory_names:
+                    candidate = Path(root) / name
+                    if not candidate.is_symlink():
+                        candidate.chmod(0o700)
             shutil.rmtree(task_root)
+
+    def seal_for_sandbox(self, workspace: WorkspaceRef) -> None:
+        """Verify and make a generation readable but immutable to sandbox UIDs."""
+
+        expected = self.read_manifest(workspace, verify=True)
+        try:
+            for root, directory_names, file_names in os.walk(
+                workspace.root, followlinks=False
+            ):
+                root_path = Path(root)
+                root_path.chmod(0o555)
+                for name in directory_names:
+                    candidate = root_path / name
+                    metadata = candidate.lstat()
+                    if not stat.S_ISDIR(metadata.st_mode) or candidate.is_symlink():
+                        raise SnapshotError(
+                            "sandbox input contains an unsafe directory"
+                        )
+                    candidate.chmod(0o555)
+                for name in file_names:
+                    candidate = root_path / name
+                    metadata = candidate.lstat()
+                    if not stat.S_ISREG(metadata.st_mode) or candidate.is_symlink():
+                        raise SnapshotError("sandbox input contains an unsafe file")
+                    candidate.chmod(0o555 if metadata.st_mode & 0o111 else 0o444)
+        except OSError as error:
+            raise SnapshotError("sandbox input cannot be sealed") from error
+        if self.read_manifest(workspace, verify=True) != expected:
+            raise SnapshotError("sandbox sealing changed the generation manifest")
 
     def copy_generation(
         self,

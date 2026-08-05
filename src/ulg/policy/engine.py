@@ -8,10 +8,11 @@ from ulg.actions import (
     CompleteAction,
     ListFilesAction,
     ReadFileAction,
+    RunTaskAction,
     SearchTextAction,
     ShowDiffAction,
 )
-from ulg.config.models import ApplyPatchTool
+from ulg.config.models import ApplyPatchTool, RunTaskTool
 from ulg.policy.models import Decision, DecisionKind
 from ulg.workspace.patches import PatchError, parse_unified_diff
 
@@ -23,12 +24,19 @@ class PolicyEngine(Protocol):
 class BaselinePolicy:
     """Deterministic MVP policy for reads, diffs, and disposable patches."""
 
-    def __init__(self, patch_settings: ApplyPatchTool | None = None) -> None:
+    def __init__(
+        self,
+        patch_settings: ApplyPatchTool | None = None,
+        run_settings: RunTaskTool | None = None,
+    ) -> None:
         self._patch_settings = patch_settings
+        self._run_settings = run_settings
 
     def evaluate(self, action: Action) -> Decision:
         if isinstance(action, ApplyPatchAction):
             kind, reason_code = self._evaluate_patch(action)
+        elif isinstance(action, RunTaskAction):
+            kind, reason_code = self._evaluate_run_task(action)
         elif isinstance(action, ShowDiffAction):
             kind = DecisionKind.ALLOW
             reason_code = "baseline_diff"
@@ -64,3 +72,10 @@ class BaselinePolicy:
         ):
             return DecisionKind.ASK, "patch_requires_approval"
         return DecisionKind.ALLOW, "baseline_small_patch"
+
+    def _evaluate_run_task(self, action: RunTaskAction) -> tuple[DecisionKind, str]:
+        if self._run_settings is None:
+            return DecisionKind.DENY, "run_policy_unavailable"
+        if action.recipe_name not in self._run_settings.allowed_recipes:
+            return DecisionKind.DENY, "recipe_not_allowed"
+        return DecisionKind.ASK, "recipe_requires_approval"

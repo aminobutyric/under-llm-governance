@@ -87,11 +87,50 @@ and lint, strict mypy, and all 50 automated tests.
 
 ## Phase 3: offline verification
 
-Status: not implemented.
+Status: complete.
 
-Required next: a pinned runner image, fixed trusted recipes, rootless Docker
-with no network/capabilities/privilege escalation, mandatory resource limits,
-bounded output, cancellation, and adversarial process tests.
+- `run_task` proposals contain only a normalized trusted recipe name. Command
+  arguments, images, mounts, environment, and sandbox flags are absent.
+- Configuration requires `run_task` to remain `ask`, rejects invalid or
+  duplicate recipe names, and requires the recipe allowlist to exactly match
+  trusted recipe definitions.
+- Policy asks for an allowlisted recipe, denies an unknown recipe, and fails
+  closed when run policy is unavailable.
+- The typed result contract records bounded output and normalized execution,
+  recipe, image, sandbox-profile, timeout, cancellation, and duration metadata.
+- Coding tools can execute only the selected trusted recipe through the sandbox
+  runner. The Ollama adapter does not advertise `run_task` until Phase 4 can
+  satisfy its mandatory scoped-approval decision.
+- `ulg sandbox-preflight` addresses only the current user's standard rootless
+  Unix socket and fails closed unless the socket is user-owned, Docker reports
+  rootless mode, and cgroup v2 uses the systemd driver.
+- The trusted runner tag is checked against a pinned image ID and execution uses
+  that digest with `--pull never`. The image has a digest-pinned Python base,
+  runs as UID/GID 65532, and includes Python/pytest/Ruff, Go, and Node. Exact
+  Debian and Python inventories are embedded in the image.
+- `ulg sandbox-run` copies a verified disposable generation through a read-only
+  bind mount into a bounded writable tmpfs. It uses no network, drops every
+  capability, enables no-new-privileges and the built-in seccomp profile, uses
+  a read-only container root, and applies CPU, memory, PID, swap, output,
+  temporary-storage, and wall-clock limits.
+- Commands are trusted argument arrays. Image, mount, environment, resource,
+  namespace, and security options cannot appear in a model action.
+- Timeout, cancellation, and output overflow kill the named container plus the
+  complete local Docker client process group; cleanup force-removes any
+  remaining container.
+- Sandbox audit events record normalized recipe, image, profile digests,
+  outcome, duration, output byte count, truncation, timeout, and cancellation,
+  but never command output or environment values.
+
+On 2026-08-05, all Python checks and 79 non-Docker automated tests passed. Four
+live rootless-Docker acceptance groups then passed: representative Python, Go,
+and JavaScript checks; network/socket/capability/privilege containment; timeout,
+output-flood, and workspace disk limits; and PID, memory, environment-secret,
+read-only-input, and original-integrity containment. The public CLI smoke tests
+also passed for all three languages, and no sandbox container remained.
+
+Required next: Phase 4 exact grants and approval presentation before the model
+can request recipe execution in the normal coding loop.
 
 ## Phase 4: approvals and complete workflow
 

@@ -95,6 +95,10 @@ Exit criteria:
 
 ## Phase 3: offline sandboxed verification
 
+Implementation status: complete as of 2026-08-05. The model-triggered approval
+path intentionally remains a Phase 4 deliverable; Phase 3 exposes a direct
+operator acceptance command and the policy-gated tool integration.
+
 Goal: run project-defined checks without allowing arbitrary host execution.
 
 Deliverables:

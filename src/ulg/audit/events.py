@@ -56,6 +56,23 @@ class WorkspaceGenerationEvent(AuditEventBase):
     tree_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class SandboxFinishedEvent(AuditEventBase):
+    event_type: Literal["sandbox_finished"] = "sandbox_finished"
+    action_id: UUID | None = None
+    recipe_name: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    recipe_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    image_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    sandbox_profile_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ok: bool
+    error_code: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    exit_code: int | None = None
+    timed_out: bool
+    cancelled: bool
+    duration_ms: int = Field(ge=0)
+    output_bytes: int = Field(ge=0)
+    output_truncated: bool
+
+
 class PatchExportedEvent(AuditEventBase):
     event_type: Literal["patch_exported"] = "patch_exported"
     generation: int = Field(gt=0)
@@ -79,6 +96,7 @@ AuditEvent = Annotated[
     | ToolFinishedEvent
     | ModelFailureEvent
     | WorkspaceGenerationEvent
+    | SandboxFinishedEvent
     | PatchExportedEvent
     | WorkspaceDiscardedEvent,
     Field(discriminator="event_type"),

@@ -21,6 +21,7 @@ model provider, and raw untrusted payloads do not cross into the audit sink.
 The current executable slice includes strict action/configuration models, the
 deterministic baseline policy, audit-safe lifecycle events, fake and Ollama model
 adapters, secure disposable snapshots, bounded read-only tools, atomic patch
-generations, reviewed patch export, `ulg inspect`, and `ulg run`. Sandbox and
+generations, reviewed patch export, `ulg inspect`, `ulg run`, rootless Docker
+sandbox preflight, and direct trusted-recipe acceptance. Model-triggered
 approval packages remain contracts until their security tests are implemented
-in the next MVP phases.
+in Phase 4.

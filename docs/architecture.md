@@ -140,7 +140,8 @@ Executes only policy-selected recipes. The initial Docker profile should use:
 - `--security-opt no-new-privileges=true`;
 - the default seccomp profile;
 - a read-only container root;
-- one writable task-workspace mount;
+- a verified, read-only generation mount copied inside the container to one
+  bounded writable tmpfs workspace;
 - bounded temporary storage;
 - CPU, memory, PID, output, and wall-clock limits;
 - no host devices, host namespaces, credentials, or Docker socket.
@@ -151,6 +152,14 @@ strictly validated trusted configuration values; “unlimited” is not accepted
 
 The image and all runtime security flags come from trusted configuration, never
 from a model action.
+
+Before each launch, the controller verifies the standard current-user Docker
+socket is user-owned, Docker reports rootless mode, cgroup v2 uses the systemd
+driver, and the configured image tag resolves to the exact pinned local image
+ID. Runtime uses the digest with `--pull never`. The original directory is
+never mounted; the verified disposable generation is mounted read-only at
+`/input`, copied to a bounded tmpfs at `/workspace`, and executed there as UID
+and GID 65532.
 
 ### Approval service
 

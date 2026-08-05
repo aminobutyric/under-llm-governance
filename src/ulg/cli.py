@@ -16,6 +16,8 @@ from ulg.audit import (
     JsonlAuditSink,
     MemoryAuditSink,
     PatchExportedEvent,
+    SandboxFinishedEvent,
+    TaskLifecycleEvent,
     WorkspaceDiscardedEvent,
 )
 from ulg.config import ConfigError, load_config
@@ -23,6 +25,12 @@ from ulg.config.models import ModelSettings
 from ulg.controller import Controller, ControllerLimitError, ReadOnlyController
 from ulg.model import FakeModel, ModelProtocolError, OllamaModel
 from ulg.policy import BaselinePolicy
+from ulg.sandbox import (
+    DockerPreflightError,
+    RootlessDockerPreflight,
+    RootlessDockerRunner,
+    SandboxExecutionError,
+)
 from ulg.tools import CodingTools, ReadOnlyTools
 from ulg.workspace import (
     PathSecurityError,
@@ -41,6 +49,24 @@ def build_parser() -> argparse.ArgumentParser:
         "dry-run", help="exercise model, schema, policy, and audit contracts"
     )
     dry_run.add_argument("--path", default=".")
+
+    subparsers.add_parser(
+        "sandbox-preflight",
+        help="verify that the local Docker daemon meets sandbox requirements",
+    )
+
+    sandbox_run = subparsers.add_parser(
+        "sandbox-run",
+        help="run one trusted recipe in a disposable offline sandbox",
+    )
+    sandbox_run.add_argument("--workspace", required=True, type=Path)
+    sandbox_run.add_argument("--recipe", required=True)
+    sandbox_run.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/policy.example.toml"),
+    )
+    sandbox_run.add_argument("--state-dir", type=Path, default=None)
 
     inspect = subparsers.add_parser(
         "inspect", help="inspect a disposable read-only snapshot with Ollama"
@@ -95,6 +121,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(result.model_dump_json())
         return 0
+    if args.command == "sandbox-preflight":
+        try:
+            report = RootlessDockerPreflight().check()
+        except DockerPreflightError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(report.to_dict(), separators=(",", ":")))
+        return 0
+    if args.command == "sandbox-run":
+        return _run_sandbox_recipe(args)
     if args.command == "inspect":
         return _run_inspect(args)
     if args.command == "run":
@@ -167,6 +203,87 @@ def _run_inspect(args: argparse.Namespace) -> int:
                 manager.discard(workspace)
 
 
+def _run_sandbox_recipe(args: argparse.Namespace) -> int:
+    task_id = uuid4()
+    state_root = args.state_dir or _default_state_root()
+    workspace = None
+    audit: JsonlAuditSink | None = None
+    cleanup_reason: Literal["completed", "failed", "cancelled"] = "failed"
+    try:
+        _require_state_outside_workspace(args.workspace, state_root)
+        config = load_config(args.config)
+        if args.recipe not in config.tools.run_task.allowed_recipes:
+            raise ValueError("recipe is not allowlisted by trusted configuration")
+        manager = SnapshotWorkspaceManager(state_root / "workspaces", config.workspace)
+        workspace = manager.create(source=args.workspace, task_id=task_id)
+        manager.seal_for_sandbox(workspace)
+        audit_root = state_root / "audit"
+        audit_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        audit = JsonlAuditSink(
+            audit_root / f"{task_id}.jsonl",
+            max_event_bytes=config.audit.max_event_bytes,
+        )
+        audit.append(TaskLifecycleEvent(task_id=task_id, event_type="task_started"))
+        runner = RootlessDockerRunner(config.sandbox, config.recipes)
+        result = runner.run(recipe_name=args.recipe, workspace=workspace.root)
+        audit.append(
+            SandboxFinishedEvent(
+                task_id=task_id,
+                recipe_name=result.recipe_name,
+                recipe_digest=result.recipe_digest,
+                image_digest=result.image_digest,
+                sandbox_profile_digest=result.sandbox_profile_digest,
+                ok=result.ok,
+                error_code=result.error_code,
+                exit_code=result.exit_code,
+                timed_out=result.timed_out,
+                cancelled=result.cancelled,
+                duration_ms=result.duration_ms,
+                output_bytes=result.output_bytes,
+                output_truncated=result.output_truncated,
+            )
+        )
+        cleanup_reason = "cancelled" if result.cancelled else "completed"
+        audit.append(
+            TaskLifecycleEvent(
+                task_id=task_id,
+                event_type="task_failed" if result.cancelled else "task_completed",
+                reason_code="sandbox_cancelled" if result.cancelled else None,
+            )
+        )
+        print(result.model_dump_json())
+        if result.cancelled:
+            return 130
+        return 0 if result.ok else 1
+    except KeyboardInterrupt:
+        cleanup_reason = "cancelled"
+        print("sandbox task cancelled", file=sys.stderr)
+        return 130
+    except (
+        ConfigError,
+        DockerPreflightError,
+        PathSecurityError,
+        SandboxExecutionError,
+        SnapshotError,
+        OSError,
+        ValueError,
+    ) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    finally:
+        if workspace is not None:
+            if audit is not None:
+                audit.append(
+                    WorkspaceDiscardedEvent(
+                        task_id=task_id,
+                        generation=workspace.generation,
+                        reason_code=cleanup_reason,
+                        patch_exported=False,
+                    )
+                )
+            manager.discard(workspace)
+
+
 def _default_state_root() -> Path:
     configured = os.environ.get("XDG_STATE_HOME")
     if configured:
@@ -224,10 +341,14 @@ def _run_coding(args: argparse.Namespace) -> int:
             manager,
             config.tools,
             original_root=args.workspace,
+            sandbox=RootlessDockerRunner(config.sandbox, config.recipes),
         )
         controller = ReadOnlyController(
             model=model,
-            policy=BaselinePolicy(config.tools.apply_patch),
+            policy=BaselinePolicy(
+                config.tools.apply_patch,
+                config.tools.run_task,
+            ),
             tools=tools,
             audit=audit,
             settings=config.task,

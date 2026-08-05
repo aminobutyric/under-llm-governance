@@ -10,6 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 DecisionName = Literal["allow", "ask", "deny"]
+RecipeName = Annotated[
+    str,
+    Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]{0,63}$"),
+]
 
 
 def _toml_string_array(value: object) -> object:
@@ -126,8 +130,8 @@ class ShowDiffTool(StrictModel):
 
 
 class RunTaskTool(StrictModel):
-    decision: DecisionName
-    allowed_recipes: tuple[str, ...]
+    decision: Literal["ask"]
+    allowed_recipes: tuple[RecipeName, ...]
     grant_max_uses: PositiveInt
     grant_ttl_seconds: PositiveInt
 
@@ -155,16 +159,31 @@ class ToolsSettings(StrictModel):
 
 class SandboxSettings(StrictModel):
     backend: Literal["rootless_docker"]
+    image: str = Field(
+        min_length=1,
+        max_length=255,
+        pattern=r"^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]+)?$",
+    )
+    image_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    container_uid: Annotated[int, Field(gt=0, lt=2_147_483_648)]
+    container_gid: Annotated[int, Field(gt=0, lt=2_147_483_648)]
     network: Literal["none"]
     read_only_root: Literal[True]
     drop_capabilities: Literal["all"]
     no_new_privileges: Literal[True]
-    memory_bytes: PositiveInt
-    cpus: Annotated[float, Field(gt=0)]
-    pids: PositiveInt
-    wall_time_seconds: PositiveInt
-    max_combined_output_bytes: PositiveInt
-    tmpfs_bytes: PositiveInt
+    memory_bytes: Annotated[int, Field(ge=67_108_864, le=4_294_967_296)]
+    cpus: Annotated[float, Field(gt=0, le=8)]
+    pids: Annotated[int, Field(gt=0, le=1_024)]
+    wall_time_seconds: Annotated[int, Field(gt=0, le=600)]
+    max_combined_output_bytes: Annotated[int, Field(gt=0, le=1_048_576)]
+    tmpfs_bytes: Annotated[int, Field(gt=0, le=1_073_741_824)]
+    workspace_tmpfs_bytes: Annotated[int, Field(gt=0, le=2_147_483_648)]
+
+    @model_validator(mode="after")
+    def enforce_resource_invariants(self) -> SandboxSettings:
+        if self.tmpfs_bytes + self.workspace_tmpfs_bytes >= self.memory_bytes:
+            raise ValueError("sandbox tmpfs limits must fit below the memory limit")
+        return self
 
 
 class RecipeSettings(StrictModel):
@@ -204,7 +223,7 @@ class AppConfig(StrictModel):
     workspace: WorkspaceSettings
     tools: ToolsSettings
     sandbox: SandboxSettings
-    recipes: dict[str, RecipeSettings]
+    recipes: dict[RecipeName, RecipeSettings]
     export: ExportSettings
     audit: AuditSettings
 
@@ -212,6 +231,8 @@ class AppConfig(StrictModel):
     def recipes_must_match_allowlist(self) -> AppConfig:
         configured = set(self.recipes)
         allowed = set(self.tools.run_task.allowed_recipes)
+        if len(allowed) != len(self.tools.run_task.allowed_recipes):
+            raise ValueError("allowed_recipes must not contain duplicates")
         if configured != allowed:
             raise ValueError("configured recipes must exactly match allowed_recipes")
         if self.model.request_timeout_seconds > self.task.max_duration_seconds:

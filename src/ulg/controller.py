@@ -13,6 +13,7 @@ from ulg.audit import (
     ActionDecisionEvent,
     AuditSink,
     ModelFailureEvent,
+    SandboxFinishedEvent,
     TaskLifecycleEvent,
     ToolFinishedEvent,
     WorkspaceGenerationEvent,
@@ -21,7 +22,7 @@ from ulg.config.models import TaskSettings
 from ulg.model import ChatMessage, ModelAdapter, ModelProtocolError
 from ulg.policy import Decision, DecisionKind
 from ulg.policy.engine import PolicyEngine
-from ulg.tools import ApplyPatchResult, ReadFileResult, ToolRunner
+from ulg.tools import ApplyPatchResult, ReadFileResult, RunTaskResult, ToolRunner
 
 
 class ControllerLimitError(RuntimeError):
@@ -267,6 +268,25 @@ class ReadOnlyController:
                             generation=result.generation,
                             parent_tree_sha256=result.parent_tree_sha256,
                             tree_sha256=result.tree_sha256,
+                        )
+                    )
+                if isinstance(result, RunTaskResult):
+                    self._audit.append(
+                        SandboxFinishedEvent(
+                            task_id=task_id,
+                            action_id=action.action_id,
+                            recipe_name=result.recipe_name,
+                            recipe_digest=result.recipe_digest,
+                            image_digest=result.image_digest,
+                            sandbox_profile_digest=result.sandbox_profile_digest,
+                            ok=result.ok,
+                            error_code=result.error_code,
+                            exit_code=result.exit_code,
+                            timed_out=result.timed_out,
+                            cancelled=result.cancelled,
+                            duration_ms=result.duration_ms,
+                            output_bytes=result.output_bytes,
+                            output_truncated=result.truncated,
                         )
                     )
                 self._append_message(

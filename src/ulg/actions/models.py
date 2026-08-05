@@ -59,6 +59,15 @@ class ShowDiffAction(ActionBase):
     type: Literal["show_diff"] = "show_diff"
 
 
+class RunTaskAction(ActionBase):
+    type: Literal["run_task"] = "run_task"
+    recipe_name: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_-]{0,63}$",
+    )
+
+
 class CompleteAction(ActionBase):
     type: Literal["complete"] = "complete"
     summary: str = Field(min_length=1, max_length=4_000)
@@ -70,6 +79,7 @@ Action = Annotated[
     | SearchTextAction
     | ApplyPatchAction
     | ShowDiffAction
+    | RunTaskAction
     | CompleteAction,
     Field(discriminator="type"),
 ]

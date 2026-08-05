@@ -17,6 +17,7 @@ from ulg.actions import (
 from ulg.cli import main
 from ulg.config.models import ModelSettings
 from ulg.model import ChatMessage, ModelProtocolError
+from ulg.sandbox import SandboxResult
 
 
 def test_dry_run_cli(capsys: object) -> None:
@@ -97,6 +98,64 @@ class _FailAfterPatchModel(_CodingModel):
 class _CloseFailureModel(_CodingModel):
     def close(self) -> None:
         raise OSError("close failed")
+
+
+class _SuccessfulSandbox:
+    def __init__(self, settings: object, recipes: object) -> None:
+        del settings, recipes
+
+    def run(self, *, recipe_name: str, workspace: Path) -> SandboxResult:
+        assert workspace.stat().st_mode & 0o777 == 0o555
+        return SandboxResult(
+            recipe_name=recipe_name,
+            recipe_digest="a" * 64,
+            image_digest=f"sha256:{'b' * 64}",
+            sandbox_profile_digest="c" * 64,
+            ok=True,
+            exit_code=0,
+            duration_ms=12,
+            output="passed\n",
+            output_bytes=7,
+        )
+
+
+def test_sandbox_run_cli_audits_metadata_without_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "test_app.py").write_text("def test_ok(): assert True\n")
+    state = tmp_path / "state"
+    monkeypatch.setattr("ulg.cli.RootlessDockerRunner", _SuccessfulSandbox)
+
+    exit_code = main(
+        [
+            "sandbox-run",
+            "--workspace",
+            str(source),
+            "--recipe",
+            "test",
+            "--state-dir",
+            str(state),
+        ]
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert list((state / "workspaces").iterdir()) == []
+    audit_file = next((state / "audit").glob("*.jsonl"))
+    events = [json.loads(line) for line in audit_file.read_text().splitlines()]
+    assert [event["event_type"] for event in events] == [
+        "task_started",
+        "sandbox_finished",
+        "task_completed",
+        "workspace_discarded",
+    ]
+    sandbox_event = events[1]
+    assert sandbox_event["image_digest"] == f"sha256:{'b' * 64}"
+    assert "output" not in sandbox_event
 
 
 def test_inspect_cli_uses_snapshot_persists_audit_and_cleans_workspace(
