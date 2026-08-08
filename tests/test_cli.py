@@ -14,7 +14,7 @@ from ulg.actions import (
     ListFilesAction,
     ShowDiffAction,
 )
-from ulg.cli import main
+from ulg.cli import build_parser, main
 from ulg.config.models import ModelSettings
 from ulg.model import ChatMessage, ModelProtocolError
 from ulg.sandbox import SandboxResult
@@ -27,6 +27,26 @@ def test_dry_run_cli(capsys: object) -> None:
     assert payload["action_type"] == "list_files"
     assert payload["decision"] == "allow"
     assert payload["executed"] is False
+
+
+def test_cli_paths_and_external_config_default_are_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = Path("/trusted/ulg-policy.toml")
+    monkeypatch.setenv("ULG_CONFIG", str(config))
+
+    args = build_parser().parse_args(
+        [
+            "inspect",
+            "--workspace",
+            "../small-project",
+            "--task",
+            "explain",
+        ]
+    )
+
+    assert args.workspace == Path("../small-project")
+    assert args.config == config
 
 
 class _ImmediateModel:
