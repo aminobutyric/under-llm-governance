@@ -134,11 +134,27 @@ can request recipe execution in the normal coding loop.
 
 ## Phase 4: approvals and complete workflow
 
-Status: not implemented.
+Status: in progress.
 
-Required next: exact recipe grants with digest/task/use/expiry binding, normalized
-approval prompts, task persistence and resume behavior, review/export/discard
-commands, and a final report that separates model claims from verified results.
+The scoped-grant contract is implemented but is not connected to the controller
+or CLI yet:
+
+- Exact-action grants bind the complete canonical action digest, action ID,
+  task, complete trusted-configuration digest, one use, and a UTC expiry.
+- Recipe grants bind the recipe name, trusted argv and sandbox-profile digest,
+  task, complete trusted-configuration digest, configured maximum uses, and a
+  UTC expiry.
+- Grants can be issued only from the matching `ask` policy decision. Consumption
+  is serialized and rejects unknown, expired, exhausted, wrong-task,
+  wrong-scope, changed-configuration, mismatched-action, and replayed-action
+  presentations without consuming a valid use on failure.
+- Automated tests cover strict grant validation, deterministic security-relevant
+  digests, expiry, forged identifiers, action mutation, task/configuration
+  mismatch, replay, and concurrent maximum-use enforcement.
+
+Required next: trusted normalized approval presentation and controller
+integration. Grant persistence and resume behavior, review/export/discard
+commands, and the final report remain later Phase 4 increments.
 
 ## MVP completion rule
 

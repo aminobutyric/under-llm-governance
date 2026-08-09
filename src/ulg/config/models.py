@@ -132,8 +132,8 @@ class ShowDiffTool(StrictModel):
 class RunTaskTool(StrictModel):
     decision: Literal["ask"]
     allowed_recipes: tuple[RecipeName, ...]
-    grant_max_uses: PositiveInt
-    grant_ttl_seconds: PositiveInt
+    grant_max_uses: Annotated[int, Field(gt=0, le=1_000)]
+    grant_ttl_seconds: Annotated[int, Field(gt=0, le=86_400)]
 
     _normalize_allowed_recipes = field_validator("allowed_recipes", mode="before")(
         _toml_string_array
