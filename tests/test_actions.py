@@ -54,6 +54,16 @@ def test_ollama_schema_removes_non_authoritative_uuid_format_metadata() -> None:
     assert "run_task" not in schema["properties"]["type"]["enum"]  # type: ignore[index]
     assert "run_task" in str(action_json_schema())
 
+    coding_schema = ollama_action_json_schema(
+        include_run_task=True, recipe_names=("test", "lint")
+    )
+    assert "run_task" in coding_schema["properties"]["type"]["enum"]  # type: ignore[index]
+    assert "recipe_name" in coding_schema["properties"]  # type: ignore[operator]
+    assert coding_schema["properties"]["recipe_name"]["enum"] == [  # type: ignore[index]
+        "test",
+        "lint",
+    ]
+
 
 @pytest.mark.parametrize(
     "recipe_name",

@@ -4,25 +4,55 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ulg.actions import CompleteAction
+from ulg.actions import Action, ApplyPatchAction, CompleteAction, RunTaskAction
+from ulg.approval import (
+    ActionGrantScope,
+    ApprovalGrant,
+    ApprovalResolution,
+    ApprovalService,
+    GrantRejectedError,
+    PatchApprovalRequest,
+    RecipeGrantScope,
+    ScopedGrantStore,
+    action_digest,
+    build_approval_request,
+)
 from ulg.audit import (
     ActionDecisionEvent,
+    ApprovalRequestedEvent,
+    ApprovalResolvedEvent,
     AuditSink,
+    GrantConsumedEvent,
+    GrantIssuedEvent,
+    GrantRejectedEvent,
     ModelFailureEvent,
     SandboxFinishedEvent,
     TaskLifecycleEvent,
     ToolFinishedEvent,
     WorkspaceGenerationEvent,
 )
-from ulg.config.models import TaskSettings
+from ulg.config.models import AppConfig, TaskSettings
 from ulg.model import ChatMessage, ModelAdapter, ModelProtocolError
 from ulg.policy import Decision, DecisionKind
 from ulg.policy.engine import PolicyEngine
-from ulg.tools import ApplyPatchResult, ReadFileResult, RunTaskResult, ToolRunner
+from ulg.tools import (
+    ApplyPatchResult,
+    ReadFileResult,
+    RunTaskResult,
+    ToolResult,
+    ToolRunner,
+)
+
+
+class EffectJournal(Protocol):
+    def before_execute(self, action: Action) -> None: ...
+
+    def after_execute(self, action: Action, result: ToolResult) -> None: ...
 
 
 class ControllerLimitError(RuntimeError):
@@ -51,6 +81,9 @@ class InspectionReport(BaseModel):
     files_read: tuple[str, ...]
     changed_files: tuple[str, ...] = ()
     generation: int = Field(ge=0, default=0)
+    approved_actions: int = Field(ge=0, default=0)
+    sandbox_runs: int = Field(ge=0, default=0)
+    successful_sandbox_runs: int = Field(ge=0, default=0)
 
 
 class Controller:
@@ -92,7 +125,7 @@ class Controller:
 
 
 class ReadOnlyController:
-    """Bounded model/tool loop for the read-only inspection phase."""
+    """Bounded model/tool loop for inspection and disposable coding tasks."""
 
     def __init__(
         self,
@@ -102,14 +135,30 @@ class ReadOnlyController:
         tools: ToolRunner,
         audit: AuditSink,
         settings: TaskSettings,
+        config: AppConfig | None = None,
+        approval: ApprovalService | None = None,
+        grants: ScopedGrantStore | None = None,
+        effect_journal: EffectJournal | None = None,
     ) -> None:
         self._model = model
         self._policy = policy
         self._tools = tools
         self._audit = audit
         self._settings = settings
+        self._config = config
+        self._approval = approval
+        self._grants = grants
+        self._effect_journal = effect_journal
+        self._recipe_grants: dict[str, UUID] = {}
 
-    def run(self, *, task_id: UUID, task: str) -> InspectionReport:
+    def run(
+        self, *, task_id: UUID, task: str, resumed: bool = False
+    ) -> InspectionReport:
+        if self._config is not None and self._grants is not None:
+            self._recipe_grants = self._grants.active_recipe_grants(
+                task_id=task_id,
+                config=self._config,
+            )
         messages = [ChatMessage(role="user", content=task)]
         self._check_context(messages)
         started = time.monotonic()
@@ -119,10 +168,16 @@ class ReadOnlyController:
         files_read: set[str] = set()
         changed_files: set[str] = set()
         generation = 0
+        approved_actions = 0
+        sandbox_runs = 0
+        successful_sandbox_runs = 0
         previous_fingerprint: str | None = None
         repeated = 0
         self._audit.append(
-            TaskLifecycleEvent(task_id=task_id, event_type="task_started")
+            TaskLifecycleEvent(
+                task_id=task_id,
+                event_type="task_resumed" if resumed else "task_started",
+            )
         )
         try:
             for turn in range(1, self._settings.max_turns + 1):
@@ -191,7 +246,28 @@ class ReadOnlyController:
                         executed=False,
                     )
                 )
-                if decision.kind is not DecisionKind.ALLOW:
+                if decision.kind is DecisionKind.ASK:
+                    if self._authorize(action, decision):
+                        approved_actions += 1
+                    else:
+                        denied_actions += 1
+                        self._append_message(
+                            messages,
+                            ChatMessage(
+                                role="tool",
+                                content=json.dumps(
+                                    {
+                                        "action_id": str(action.action_id),
+                                        "ok": False,
+                                        "error_code": "approval_denied",
+                                        "reason_code": decision.reason_code,
+                                    },
+                                    separators=(",", ":"),
+                                ),
+                            ),
+                        )
+                        continue
+                elif decision.kind is DecisionKind.DENY:
                     denied_actions += 1
                     denial_payload: dict[str, object] = {
                         "action_id": str(action.action_id),
@@ -228,6 +304,9 @@ class ReadOnlyController:
                         files_read=tuple(sorted(files_read)),
                         changed_files=tuple(sorted(changed_files)),
                         generation=generation,
+                        approved_actions=approved_actions,
+                        sandbox_runs=sandbox_runs,
+                        successful_sandbox_runs=successful_sandbox_runs,
                     )
                     self._audit.append(
                         TaskLifecycleEvent(
@@ -239,7 +318,11 @@ class ReadOnlyController:
 
                 if tool_calls >= self._settings.max_tool_calls:
                     raise ControllerLimitError("task exceeded tool-call limit")
+                if self._effect_journal is not None:
+                    self._effect_journal.before_execute(action)
                 result = self._tools.execute(action)
+                if self._effect_journal is not None:
+                    self._effect_journal.after_execute(action, result)
                 tool_calls += 1
                 if isinstance(result, ReadFileResult) and result.ok:
                     files_read.add(result.path)
@@ -271,6 +354,9 @@ class ReadOnlyController:
                         )
                     )
                 if isinstance(result, RunTaskResult):
+                    sandbox_runs += 1
+                    if result.ok:
+                        successful_sandbox_runs += 1
                     self._audit.append(
                         SandboxFinishedEvent(
                             task_id=task_id,
@@ -307,6 +393,147 @@ class ReadOnlyController:
                 )
             )
             raise
+
+    def _authorize(self, action: object, decision: Decision) -> bool:
+        if not isinstance(action, (ApplyPatchAction, RunTaskAction)):
+            return False
+        if self._config is None or self._approval is None or self._grants is None:
+            return False
+
+        if isinstance(action, RunTaskAction):
+            existing_grant_id = self._recipe_grants.get(action.recipe_name)
+            if existing_grant_id is not None:
+                if self._consume_grant(existing_grant_id, action):
+                    return True
+                self._recipe_grants.pop(action.recipe_name, None)
+
+        request = build_approval_request(
+            action=action,
+            decision=decision,
+            config=self._config,
+        )
+        self._audit.append(
+            ApprovalRequestedEvent(
+                task_id=action.task_id,
+                action_id=action.action_id,
+                action_type=action.type,
+                request_type=request.type,
+                action_digest=action_digest(action),
+                recipe_name=(request.recipe_name if request.type == "recipe" else None),
+                changed_file_count=(
+                    len(request.changed_files) if request.type == "patch" else 0
+                ),
+                deleted_file_count=(
+                    len(request.deleted_files) if request.type == "patch" else 0
+                ),
+                patch_bytes=(request.patch_bytes if request.type == "patch" else 0),
+            )
+        )
+        resolution = self._approval.request(request)
+        if not isinstance(resolution, ApprovalResolution):
+            resolution = ApprovalResolution.DENY
+        if isinstance(request, PatchApprovalRequest) and (
+            resolution is ApprovalResolution.APPROVE_RECIPE
+        ):
+            resolution = ApprovalResolution.DENY
+        self._audit.append(
+            ApprovalResolvedEvent(
+                task_id=action.task_id,
+                action_id=action.action_id,
+                resolution=resolution.value,
+            )
+        )
+        if resolution is ApprovalResolution.DENY:
+            return False
+
+        if resolution is ApprovalResolution.APPROVE_RECIPE and isinstance(
+            action, RunTaskAction
+        ):
+            grant = self._grants.issue_recipe(
+                decision=decision,
+                action=action,
+                config=self._config,
+            )
+            self._recipe_grants[action.recipe_name] = grant.grant_id
+        else:
+            ttl_seconds = (
+                request.ttl_seconds
+                if isinstance(request, PatchApprovalRequest)
+                else request.grant_ttl_seconds
+            )
+            grant = self._grants.issue_action(
+                decision=decision,
+                action=action,
+                config=self._config,
+                ttl_seconds=ttl_seconds,
+            )
+        self._audit.append(
+            GrantIssuedEvent(
+                task_id=action.task_id,
+                action_id=action.action_id,
+                grant_id=grant.grant_id,
+                scope_type=grant.scope.type,
+                scope_digest=(
+                    grant.scope.recipe_digest
+                    if isinstance(grant.scope, RecipeGrantScope)
+                    else grant.scope.action_digest
+                ),
+                config_digest=grant.config_digest,
+                max_uses=grant.max_uses,
+                expires_at=grant.expires_at,
+            )
+        )
+        return self._consume_grant(grant.grant_id, action)
+
+    def _consume_grant(
+        self,
+        grant_id: UUID,
+        action: ApplyPatchAction | RunTaskAction,
+    ) -> bool:
+        if self._config is None or self._grants is None:
+            return False
+        try:
+            grant: ApprovalGrant
+            if isinstance(action, RunTaskAction) and (
+                action.recipe_name in self._recipe_grants
+                and self._recipe_grants[action.recipe_name] == grant_id
+            ):
+                grant = self._grants.consume_recipe(
+                    grant_id,
+                    action=action,
+                    config=self._config,
+                )
+            else:
+                grant = self._grants.consume_action(
+                    grant_id,
+                    action=action,
+                    config=self._config,
+                )
+        except GrantRejectedError as error:
+            self._audit.append(
+                GrantRejectedEvent(
+                    task_id=action.task_id,
+                    action_id=action.action_id,
+                    grant_id=grant_id,
+                    reason_code=error.reason_code,
+                )
+            )
+            return False
+        scope_type: Literal["action", "recipe"] = (
+            "recipe" if isinstance(grant.scope, RecipeGrantScope) else "action"
+        )
+        if not isinstance(grant.scope, (ActionGrantScope, RecipeGrantScope)):
+            raise RuntimeError("grant has an unsupported scope")
+        self._audit.append(
+            GrantConsumedEvent(
+                task_id=action.task_id,
+                action_id=action.action_id,
+                grant_id=grant.grant_id,
+                scope_type=scope_type,
+                remaining_uses=self._grants.remaining_uses(grant.grant_id),
+            )
+        )
+        return True
 
     def _append_message(
         self, messages: list[ChatMessage], message: ChatMessage

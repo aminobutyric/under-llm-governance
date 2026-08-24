@@ -3,7 +3,12 @@
 
 from ulg.audit.events import (
     ActionDecisionEvent,
+    ApprovalRequestedEvent,
+    ApprovalResolvedEvent,
     AuditEvent,
+    GrantConsumedEvent,
+    GrantIssuedEvent,
+    GrantRejectedEvent,
     ModelFailureEvent,
     PatchExportedEvent,
     SandboxFinishedEvent,
@@ -16,8 +21,13 @@ from ulg.audit.sinks import AuditSink, JsonlAuditSink, MemoryAuditSink
 
 __all__ = [
     "ActionDecisionEvent",
+    "ApprovalRequestedEvent",
+    "ApprovalResolvedEvent",
     "AuditEvent",
     "AuditSink",
+    "GrantConsumedEvent",
+    "GrantIssuedEvent",
+    "GrantRejectedEvent",
     "JsonlAuditSink",
     "MemoryAuditSink",
     "ModelFailureEvent",

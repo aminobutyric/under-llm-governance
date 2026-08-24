@@ -122,6 +122,7 @@ class ApplyPatchTool(StrictModel):
     max_changed_files: PositiveInt
     ask_above_changed_files: NonNegativeInt
     ask_on_delete: bool
+    grant_ttl_seconds: Annotated[int, Field(gt=0, le=86_400)] = 600
 
 
 class ShowDiffTool(StrictModel):

@@ -23,5 +23,9 @@ deterministic baseline policy, audit-safe lifecycle events, fake and Ollama mode
 adapters, secure disposable snapshots, bounded read-only tools, atomic patch
 generations, reviewed patch export, `ulg inspect`, `ulg run`, rootless Docker
 sandbox preflight, and direct trusted-recipe acceptance. Model-triggered
-approval packages remain contracts until their security tests are implemented
-in Phase 4.
+recipe execution now crosses normalized terminal approval, durable scoped grant
+consumption, at-most-once effect scheduling, sandbox execution, and allowlisted
+audit events. Atomic task state, verified generation recovery, restart-safe
+`resume`, explicit `discard`, and legacy recovery export are implemented. The
+complete review/operations CLI and audit-derived final report remain Phase 4
+work.

@@ -95,6 +95,24 @@ class GrantRejectedError(RuntimeError):
         self.reason_code = reason_code
 
 
+class GrantRecord(_StrictModel):
+    """Durable consumption state for one controller-issued grant."""
+
+    grant: ApprovalGrant
+    uses: int = Field(ge=0, le=1_000)
+    action_ids: tuple[UUID, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_consumption(self) -> GrantRecord:
+        if self.uses > self.grant.max_uses:
+            raise ValueError("grant uses exceed the configured maximum")
+        if len(self.action_ids) != self.uses:
+            raise ValueError("grant action identifiers must match uses")
+        if len(set(self.action_ids)) != len(self.action_ids):
+            raise ValueError("grant action identifiers must be unique")
+        return self
+
+
 @dataclass
 class _GrantState:
     grant: ApprovalGrant
@@ -143,15 +161,27 @@ def recipe_digest(recipe_name: str, config: AppConfig) -> str:
 
 
 class ScopedGrantStore:
-    """Issue and atomically consume in-memory scoped approval grants.
+    """Issue and atomically consume scoped grants with optional durable commits."""
 
-    Persistence and user-facing approval prompts belong to later Phase 4
-    iterations. Only trusted controller code should call the issuance methods.
-    """
-
-    def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], datetime] | None = None,
+        records: tuple[GrantRecord, ...] = (),
+        persist: Callable[[tuple[GrantRecord, ...]], None] | None = None,
+    ) -> None:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._states: dict[UUID, _GrantState] = {}
+        for record in records:
+            grant_id = record.grant.grant_id
+            if grant_id in self._states:
+                raise ValueError("durable grants contain a duplicate identifier")
+            self._states[grant_id] = _GrantState(
+                grant=record.grant,
+                uses=record.uses,
+                action_ids=set(record.action_ids),
+            )
+        self._persist = persist
         self._lock = Lock()
 
     def issue_action(
@@ -257,11 +287,60 @@ class ScopedGrantStore:
                 raise GrantRejectedError("grant_not_found")
             return state.grant.max_uses - state.uses
 
+    def records(self) -> tuple[GrantRecord, ...]:
+        with self._lock:
+            return self._records()
+
+    def active_recipe_grants(
+        self, *, task_id: UUID, config: AppConfig
+    ) -> dict[str, UUID]:
+        """Return non-expired, matching recipe grants for controller restoration."""
+
+        with self._lock:
+            now = self._utc_now()
+            expected_config = config_digest(config)
+            active: dict[str, UUID] = {}
+            for state in self._states.values():
+                grant = state.grant
+                scope = grant.scope
+                if (
+                    isinstance(scope, RecipeGrantScope)
+                    and grant.task_id == task_id
+                    and grant.config_digest == expected_config
+                    and grant.expires_at > now
+                    and state.uses < grant.max_uses
+                    and scope.recipe_digest == recipe_digest(scope.recipe_name, config)
+                ):
+                    active[scope.recipe_name] = grant.grant_id
+            return active
+
+    def revoke_recipe(self, *, task_id: UUID, recipe_name: str) -> None:
+        """Durably remove grants for an uncertain interrupted recipe execution."""
+
+        with self._lock:
+            retained = {
+                grant_id: state
+                for grant_id, state in self._states.items()
+                if not (
+                    state.grant.task_id == task_id
+                    and isinstance(state.grant.scope, RecipeGrantScope)
+                    and state.grant.scope.recipe_name == recipe_name
+                )
+            }
+            if len(retained) == len(self._states):
+                return
+            records = self._records(retained)
+            self._commit(records)
+            self._states = retained
+
     def _register(self, grant: ApprovalGrant) -> ApprovalGrant:
         with self._lock:
             if grant.grant_id in self._states:
                 raise RuntimeError("duplicate grant identifier")
-            self._states[grant.grant_id] = _GrantState(grant=grant)
+            candidate = dict(self._states)
+            candidate[grant.grant_id] = _GrantState(grant=grant)
+            self._commit(self._records(candidate))
+            self._states = candidate
         return grant
 
     def _validated_common(
@@ -286,10 +365,46 @@ class ScopedGrantStore:
             raise GrantRejectedError("grant_action_replayed")
         return state
 
-    @staticmethod
-    def _consume(state: _GrantState, action_id: UUID) -> None:
+    def _consume(self, state: _GrantState, action_id: UUID) -> None:
+        records: list[GrantRecord] = []
+        for current in self._states.values():
+            if current is state:
+                records.append(
+                    GrantRecord(
+                        grant=current.grant,
+                        uses=current.uses + 1,
+                        action_ids=tuple(
+                            sorted((*current.action_ids, action_id), key=str)
+                        ),
+                    )
+                )
+            else:
+                records.append(self._record(current))
+        ordered = tuple(sorted(records, key=lambda item: item.grant.grant_id.hex))
+        self._commit(ordered)
         state.uses += 1
         state.action_ids.add(action_id)
+
+    def _records(
+        self, states: dict[UUID, _GrantState] | None = None
+    ) -> tuple[GrantRecord, ...]:
+        selected = self._states if states is None else states
+        return tuple(
+            self._record(state)
+            for _, state in sorted(selected.items(), key=lambda item: item[0].hex)
+        )
+
+    @staticmethod
+    def _record(state: _GrantState) -> GrantRecord:
+        return GrantRecord(
+            grant=state.grant,
+            uses=state.uses,
+            action_ids=tuple(sorted(state.action_ids, key=str)),
+        )
+
+    def _commit(self, records: tuple[GrantRecord, ...]) -> None:
+        if self._persist is not None:
+            self._persist(records)
 
     @staticmethod
     def _require_ask(decision: Decision, action: Action) -> None:

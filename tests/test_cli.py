@@ -12,6 +12,7 @@ from ulg.actions import (
     ApplyPatchAction,
     CompleteAction,
     ListFilesAction,
+    RunTaskAction,
     ShowDiffAction,
 )
 from ulg.cli import main
@@ -30,8 +31,14 @@ def test_dry_run_cli(capsys: object) -> None:
 
 
 class _ImmediateModel:
-    def __init__(self, settings: ModelSettings) -> None:
-        del settings
+    def __init__(
+        self,
+        settings: ModelSettings,
+        *,
+        enable_run_task: bool = False,
+        allowed_recipes: tuple[str, ...] = (),
+    ) -> None:
+        del settings, enable_run_task, allowed_recipes
         self.calls = 0
 
     def propose(self, *, task_id: UUID, messages: Sequence[ChatMessage]) -> Action:
@@ -81,6 +88,27 @@ class _CodingModel(_ImmediateModel):
         )
 
 
+class _CodingAndTestModel(_ImmediateModel):
+    def propose(self, *, task_id: UUID, messages: Sequence[ChatMessage]) -> Action:
+        del messages
+        self.calls += 1
+        if self.calls == 1:
+            return ApplyPatchAction(
+                task_id=task_id,
+                rationale="update readme",
+                patch=(
+                    "--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,1 @@\n-old\n+new\n"
+                ),
+            )
+        if self.calls == 2:
+            return RunTaskAction(
+                task_id=task_id,
+                rationale="run the trusted tests",
+                recipe_name="test",
+            )
+        return CompleteAction(task_id=task_id, rationale="done", summary="done")
+
+
 class _CancelAfterPatchModel(_CodingModel):
     def propose(self, *, task_id: UUID, messages: Sequence[ChatMessage]) -> Action:
         if self.calls == 0:
@@ -93,6 +121,19 @@ class _FailAfterPatchModel(_CodingModel):
         if self.calls == 0:
             return super().propose(task_id=task_id, messages=messages)
         raise ModelProtocolError("transport_error", "offline")
+
+
+class _ResumeModel(_ImmediateModel):
+    def propose(self, *, task_id: UUID, messages: Sequence[ChatMessage]) -> Action:
+        del messages
+        self.calls += 1
+        if self.calls == 1:
+            return ShowDiffAction(task_id=task_id, rationale="review retained changes")
+        return CompleteAction(
+            task_id=task_id,
+            rationale="done",
+            summary="Retained change is ready for export.",
+        )
 
 
 class _CloseFailureModel(_CodingModel):
@@ -277,6 +318,51 @@ def test_run_cli_exports_patch_without_modifying_original(
     assert events[-1]["patch_exported"] is True
 
 
+def test_run_cli_approves_and_executes_model_requested_recipe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "README.md").write_text("old\n")
+    state = tmp_path / "state"
+    output = tmp_path / "change.patch"
+    monkeypatch.setattr("ulg.cli.OllamaModel", _CodingAndTestModel)
+    monkeypatch.setattr("ulg.cli.RootlessDockerRunner", _SuccessfulSandbox)
+    monkeypatch.setattr("builtins.input", lambda: "o")
+
+    exit_code = main(
+        [
+            "run",
+            "--workspace",
+            str(source),
+            "--task",
+            "update and verify",
+            "--output",
+            str(output),
+            "--state-dir",
+            str(state),
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)["report"]
+    assert report["approved_actions"] == 1
+    assert report["sandbox_runs"] == 1
+    assert report["successful_sandbox_runs"] == 1
+    assert "Approval required" in captured.err
+    assert "Trusted command" in captured.err
+    audit_file = next((state / "audit").glob("*.jsonl"))
+    event_types = [
+        json.loads(line)["event_type"] for line in audit_file.read_text().splitlines()
+    ]
+    assert "approval_requested" in event_types
+    assert "grant_consumed" in event_types
+    assert "sandbox_finished" in event_types
+
+
 @pytest.mark.parametrize(
     ("model_type", "expected_exit", "reason"),
     [
@@ -310,6 +396,8 @@ def test_run_cli_exports_last_complete_generation_after_failure(
             str(output),
             "--state-dir",
             str(state),
+            "--failure-mode",
+            "recover",
         ]
     )
 
@@ -328,6 +416,117 @@ def test_run_cli_exports_last_complete_generation_after_failure(
     assert events[-1]["event_type"] == "workspace_discarded"
     assert events[-1]["reason_code"] == reason
     assert events[-1]["patch_exported"] is True
+
+
+def test_run_cli_retains_failure_and_resume_exports_verified_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "README.md").write_text("old\n")
+    state = tmp_path / "state"
+    output = tmp_path / "resumed.patch"
+    monkeypatch.setattr("ulg.cli.OllamaModel", _FailAfterPatchModel)
+
+    assert (
+        main(
+            [
+                "run",
+                "--workspace",
+                str(source),
+                "--task",
+                "update then resume",
+                "--output",
+                str(output),
+                "--state-dir",
+                str(state),
+            ]
+        )
+        == 2
+    )
+    retained_error = capsys.readouterr().err
+    task_file = next(
+        path
+        for path in (state / "tasks").glob("*.json")
+        if not path.name.endswith(".grants.json")
+    )
+    retained = json.loads(task_file.read_text())
+    task_id = retained["task_id"]
+    assert retained["phase"] == "retry"
+    assert retained["generation"] == 1
+    assert "resume:" in retained_error
+    assert not output.exists()
+
+    monkeypatch.setattr("ulg.cli.OllamaModel", _ResumeModel)
+    assert main(["resume", task_id, "--state-dir", str(state)]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["task_id"] == task_id
+    assert payload["state"] == "discard"
+    assert "+new" in output.read_text()
+    assert (source / "README.md").read_text() == "old\n"
+    assert list((state / "workspaces").iterdir()) == []
+    final_state = json.loads(task_file.read_text())
+    assert final_state["phase"] == "discard"
+    event_types = [
+        json.loads(line)["event_type"]
+        for line in (state / "audit" / f"{task_id}.jsonl").read_text().splitlines()
+    ]
+    assert "task_resumed" in event_types
+    assert event_types[-1] == "workspace_discarded"
+
+
+def test_resume_rejects_changed_configuration_and_keeps_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "README.md").write_text("old\n")
+    state = tmp_path / "state"
+    output = tmp_path / "change.patch"
+    config_copy = tmp_path / "policy.toml"
+    config_copy.write_bytes(Path("config/policy.example.toml").read_bytes())
+    monkeypatch.setattr("ulg.cli.OllamaModel", _FailAfterPatchModel)
+
+    assert (
+        main(
+            [
+                "run",
+                "--workspace",
+                str(source),
+                "--task",
+                "update then resume",
+                "--output",
+                str(output),
+                "--config",
+                str(config_copy),
+                "--state-dir",
+                str(state),
+            ]
+        )
+        == 2
+    )
+    capsys.readouterr()
+    task_file = next(
+        path
+        for path in (state / "tasks").glob("*.json")
+        if not path.name.endswith(".grants.json")
+    )
+    task_id = json.loads(task_file.read_text())["task_id"]
+    config_copy.write_text(
+        config_copy.read_text().replace("max_turns = 40", "max_turns = 41")
+    )
+
+    assert main(["resume", task_id, "--state-dir", str(state)]) == 2
+
+    assert "configuration changed" in capsys.readouterr().err
+    assert len(list((state / "workspaces").iterdir())) == 1
+    assert main(["discard", task_id, "--state-dir", str(state)]) == 0
+    assert list((state / "workspaces").iterdir()) == []
 
 
 def test_run_cli_refuses_patch_export_inside_original(
@@ -359,8 +558,14 @@ def test_run_cli_refuses_patch_export_inside_original(
     assert exit_code == 2
     assert not output.exists()
     assert (source / "README.md").read_text() == "old\n"
-    assert list((state / "workspaces").iterdir()) == []
+    retained = list((state / "workspaces").iterdir())
+    assert len(retained) == 1
     assert "protected root" in capsys.readouterr().err
+
+    task_payload = json.loads(next((state / "tasks").glob("*.json")).read_text())
+    task_id = task_payload["task_id"]
+    assert main(["discard", task_id, "--state-dir", str(state)]) == 0
+    assert list((state / "workspaces").iterdir()) == []
 
 
 def test_run_cli_refuses_application_state_inside_original_before_writing(
