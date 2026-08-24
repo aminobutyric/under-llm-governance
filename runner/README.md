@@ -5,10 +5,11 @@ Debian Bookworm `golang-go` and `nodejs` packages. Its Python base is
 pinned by registry digest in `Dockerfile`. The completed local image is pinned
 again by its image ID in trusted application configuration.
 
-Build it only through the rootless daemon:
+Build it only through the rootless daemon. This form works from any directory:
 
 ```console
-docker build --pull=false --tag ulg-runner:phase3 runner
+export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
+docker build --pull=false --tag ulg-runner:phase3 "$ULG_REPO/runner"
 docker image inspect ulg-runner:phase3 --format '{{.Id}}'
 ```
 

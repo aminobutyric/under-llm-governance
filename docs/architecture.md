@@ -19,7 +19,7 @@ User task ---------->  CLI / controller            |
                     |       +----> Ollama adapter -+----> Ollama on loopback
                     |       |                      |
                     |       v                      |
-Approval UI <-------+-- policy engine              |
+Approval UI <-------+-- policy engine              |  (Phase 4)
                     |       |                      |
 Audit log <---------+-------+                      |
                     +-------|----------------------+
@@ -86,7 +86,7 @@ Initial action set:
 | `search_text` | Search text with result limits | Allow |
 | `apply_patch` | Create a new task-workspace generation | Allow and audit |
 | `show_diff` | Inspect pending changes | Allow |
-| `run_task` | Select a fixed test/lint/format recipe by name | Scoped approval |
+| `run_task` | Select a fixed test/lint/format recipe by name | Ask; blocked until Phase 4 approval |
 
 Arbitrary shell execution, network access, dependency installation, Git push,
 and deployment are deliberately absent from the MVP schema.
@@ -177,7 +177,7 @@ never mounted; the verified disposable generation is mounted read-only at
 `/input`, copied to a bounded tmpfs at `/workspace`, and executed there as UID
 and GID 65532.
 
-### Approval service
+### Approval service (Phase 4 target)
 
 Displays normalized controller data, never model-authored approval prose. It can
 approve one action or issue a bounded grant containing the exact recipe digest,
@@ -220,7 +220,8 @@ User task
 
 ## Configuration layers
 
-Strict TOML configuration is merged from most restrictive to least specific:
+The target configuration model merges strict TOML policy from most restrictive
+to least specific:
 
 1. compiled security invariants that configuration cannot disable;
 2. administrator or installation policy;
@@ -230,6 +231,10 @@ Strict TOML configuration is merged from most restrictive to least specific:
 
 A lower layer may remove permissions but may not silently grant a capability
 forbidden by a higher layer.
+
+Through Phase 3, the CLI loads exactly one trusted file selected by `--config`
+or `ULG_CONFIG`; automatic administrator/user/project/task merging is not yet
+implemented. Target-project content is never treated as trusted policy.
 
 ## Deferred decisions
 

@@ -1,5 +1,6 @@
 # Trusted local policy consumed by the CLI.
-# Project-local configuration may restrict this trusted policy, not expand it.
+# Through Phase 3, the CLI loads exactly this selected file; it does not merge
+# configuration from the target project.
 version = 1
 
 [model]

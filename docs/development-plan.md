@@ -202,9 +202,9 @@ Exit criteria:
 - A clean machine can install and run a pinned release reproducibly.
 - Known limitations and residual risks are documented next to the release.
 
-## Initial milestone backlog
+## Historical initial milestone order
 
-The first implementation milestone should contain these issues, in order:
+These Phase 0–1 foundation items were implemented in this order:
 
 1. Initialize the locked `uv`/`src` Python project and CLI skeleton.
 2. Define action and policy-decision types.
