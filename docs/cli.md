@@ -1,7 +1,8 @@
 # CLI guide
 
-This guide covers the implemented Phase 0–3 commands. Phase 4 model-triggered
-approvals are not available yet.
+This guide covers the implemented Phase 0–4 commands, including scoped terminal
+approvals, durable resume, bounded review, redacted audit summaries, and explicit
+cleanup.
 
 ## Path rules
 
@@ -102,6 +103,11 @@ are visible without reinstalling.
 | `ulg dry-run` | Exercise contracts without filesystem or process effects | No | No |
 | `ulg inspect` | Inspect a disposable read-only snapshot | Yes | No |
 | `ulg run` | Edit disposable generations and export a patch | Yes | No |
+| `ulg resume` | Continue one retained durable task | Yes | Only for approved recipes |
+| `ulg diff` | Review one retained task's bounded verified diff | No | No |
+| `ulg audit` | Show one task's concise redacted lifecycle | No | No |
+| `ulg discard` | Destroy one retained workspace and its grants | No | No |
+| `ulg clean` | Delete exact task IDs after size/age preview | No | No |
 | `ulg sandbox-preflight` | Validate the current user's Docker daemon | No | Yes |
 | `ulg sandbox-run` | Run one trusted recipe in the offline sandbox | No | Yes |
 
@@ -121,8 +127,29 @@ uv run --project "$ULG_REPO" --frozen ulg sandbox-run --help
   failure.
 - `130`: cancellation by the user.
 
-## Current Phase 4 boundary
+## Durable review and cleanup
 
-`sandbox-run` is an explicit operator command. Although the typed `run_task`
-action and coding-tool bridge exist, Ollama is not offered that action until
-Phase 4 implements exact recipe grants and trusted approval presentation.
+`ulg run` prints the task ID as soon as durable state exists. If a task is
+retained, use the printed commands to inspect and continue it:
+
+```console
+ulg diff TASK_ID
+ulg audit TASK_ID
+ulg resume TASK_ID
+ulg discard TASK_ID
+```
+
+`diff` returns JSON containing the verified generation, total and returned byte
+counts, a truncation flag, and the bounded unified diff. `audit` validates each
+complete allowlisted event and returns counts plus at most 200 redacted timeline
+entries; raw model, patch, tool-output, and environment payloads are absent.
+
+Cleanup takes exact task identifiers and prints age and stored bytes before any
+deletion. It confirms interactively unless `--yes` is supplied. Retained tasks
+require the additional `--include-retained` acknowledgement. An optional age
+gate skips newer selected tasks:
+
+```console
+ulg clean TASK_ID --older-than-days 30 --yes
+ulg clean TASK_ID --include-retained --yes
+```

@@ -181,6 +181,8 @@ last manifest-verified generation by default and prints its task identifier:
 
 ```console
 uv run ulg resume TASK_ID
+uv run ulg diff TASK_ID
+uv run ulg audit TASK_ID
 uv run ulg discard TASK_ID
 ```
 
@@ -196,6 +198,17 @@ contain the original task text, trusted paths and configuration digest, current
 generation, lifecycle phase, and bounded effect journal. Successful export and
 explicit discard destroy workspace generations and revoke stored grants; the
 small lifecycle record remains for later audit and cleanup commands.
+
+`ulg diff` verifies the retained generation and returns a byte-bounded review;
+`ulg audit` strictly parses the allowlisted event log into redacted counts and a
+bounded lifecycle timeline. Cleanup always requires exact task IDs, reports task
+age and stored bytes, and asks for confirmation. Resumable work is protected
+unless `--include-retained` is explicit:
+
+```console
+uv run ulg clean TASK_ID --older-than-days 30 --yes
+uv run ulg clean TASK_ID --include-retained --yes
+```
 
 Approval prompts are written to the terminal separately from the final JSON
 report. Patch prompts contain parsed file operations rather than raw model prose

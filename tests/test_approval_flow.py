@@ -218,3 +218,14 @@ def test_terminal_approval_fails_closed_on_invalid_input() -> None:
     assert resolution is ApprovalResolution.DENY
     assert "Trusted command" in output.getvalue()
     assert "network=none" in output.getvalue()
+
+
+def test_terminal_explains_expired_grant_without_rendering_untrusted_data() -> None:
+    output = StringIO()
+    service = TerminalApprovalService(input_fn=lambda: "n", output=output)
+
+    service.notify_grant_rejected("grant_expired")
+
+    assert output.getvalue() == (
+        "\nThe previous grant expired; fresh approval is required.\n"
+    )

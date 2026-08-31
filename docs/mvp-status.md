@@ -186,9 +186,11 @@ The Phase 4 durability gate passes the lockfile check, Ruff formatting and lint,
 strict mypy, and all 103 non-Docker automated tests. Four live rootless-Docker
 acceptance groups remain environment-gated.
 
-Required next: review and operations UX (`ulg diff`, `ulg audit`, and `ulg clean`)
-plus a complete audit-derived final report. The remaining adversarial acceptance
-matrix follows that increment.
+The review and operations increment adds bounded verified `ulg diff`, strict
+redacted `ulg audit`, exact-target `ulg clean` with age/size preview and retained
+work protection, actionable task commands, and an audit-derived completion
+summary. Required next: finish targeted operational error guidance, then execute
+the remaining adversarial acceptance and release-readiness matrix.
 
 ## MVP completion rule
 

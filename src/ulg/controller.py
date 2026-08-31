@@ -518,6 +518,9 @@ class ReadOnlyController:
                     reason_code=error.reason_code,
                 )
             )
+            notify = getattr(self._approval, "notify_grant_rejected", None)
+            if callable(notify):
+                notify(error.reason_code)
             return False
         scope_type: Literal["action", "recipe"] = (
             "recipe" if isinstance(grant.scope, RecipeGrantScope) else "action"

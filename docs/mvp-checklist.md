@@ -28,13 +28,13 @@ negative tests, documentation, and relevant acceptance evidence are complete.
 
 ## 3. Review and operations UX
 
-- [ ] Add `ulg diff TASK_ID` for bounded pending-change review.
-- [ ] Add `ulg audit TASK_ID` with a concise, redacted lifecycle view.
-- [ ] Add `ulg clean` with explicit targets, age/size reporting, and safe confirmation.
-- [ ] Make `ulg run` print the task identifier and actionable next commands.
-- [ ] Produce a final report separating proposals, approvals, executions, verified
+- [x] Add `ulg diff TASK_ID` for bounded pending-change review.
+- [x] Add `ulg audit TASK_ID` with a concise, redacted lifecycle view.
+- [x] Add `ulg clean` with explicit targets, age/size reporting, and safe confirmation.
+- [x] Make `ulg run` print the task identifier and actionable next commands.
+- [x] Produce a final report separating proposals, approvals, executions, verified
       checks, pending changes, failures, and model-authored summary text.
-- [ ] Improve errors for unavailable Ollama, Docker preflight failure, and expiry.
+- [x] Improve errors for unavailable Ollama, Docker preflight failure, and expiry.
 
 ## 4. MVP security acceptance
 

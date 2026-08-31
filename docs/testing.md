@@ -1,4 +1,4 @@
-# Testing through Phase 3
+# Testing through the Phase 4 durable workflow
 
 This guide verifies every implemented user path through Phase 3. Run commands
 from the repository root unless a section explicitly says they work anywhere.
@@ -166,18 +166,19 @@ uv run --project "$ULG_REPO" --frozen ulg sandbox-run \
 Each result should have `"ok":true`, `"exit_code":0`, and non-empty recipe,
 image, and sandbox-profile digests.
 
-## 8. Audit and cleanup inspection
+## 8. Durable review and cleanup
 
 By default, durable audit files are stored under:
 
 `$XDG_STATE_HOME/ulg/audit` when `XDG_STATE_HOME` is set, otherwise
 `~/.local/state/ulg/audit`.
 
-List recent files and inspect one:
+Use the controller-owned views instead of opening internal state directly:
 
 ```console
-ls -lt "${XDG_STATE_HOME:-$HOME/.local/state}/ulg/audit" | head
-less "${XDG_STATE_HOME:-$HOME/.local/state}/ulg/audit/<audit-file>.jsonl"
+ulg diff TASK_ID
+ulg audit TASK_ID
+ulg clean TASK_ID --older-than-days 30 --yes
 ```
 
 Sandbox execution should record `task_started`, `sandbox_finished`,
@@ -188,8 +189,15 @@ values.
 The corresponding `workspaces` state directory should contain no retained task
 generation after completion.
 
-## 9. Phase boundary
+For a deliberately retained test task, cleanup requires explicit acknowledgement:
 
-Do not expect an Ollama-driven coding task to execute `run_task` yet. The direct
-operator command and isolated runner are complete; exact approval grants and
-model-facing recipe execution belong to Phase 4.
+```console
+ulg clean TASK_ID --include-retained --yes
+```
+
+## 9. Phase 4 approval boundary
+
+Ollama may request only recipe names allowlisted by trusted configuration. Every
+model-requested patch or recipe execution that evaluates to `ask` requires an
+exact action grant or a bounded recipe grant from the terminal approval service.
+Expiry, changed configuration, replay, and mismatched scope fail closed.

@@ -65,6 +65,13 @@ generations. Because a terminated process cannot prove the result of an in-fligh
 sandbox, that result becomes unknown and its recipe grant is revoked; it is never
 silently repeated.
 
+Review and cleanup do not invoke the model. `ulg diff` verifies the retained
+manifest chain and applies the configured output bound. `ulg audit` validates
+complete allowlisted JSONL events with fixed input and timeline limits, exposing
+only normalized metadata. `ulg clean` accepts exact task identifiers, previews
+age and stored bytes, locks and revalidates every selected revision, protects
+retained tasks by default, and deletes durable state last.
+
 ### Model adapter
 
 Defines a provider-neutral chat and tool-calling contract. The initial Ollama
@@ -86,7 +93,7 @@ Initial action set:
 | `search_text` | Search text with result limits | Allow |
 | `apply_patch` | Create a new task-workspace generation | Allow and audit |
 | `show_diff` | Inspect pending changes | Allow |
-| `run_task` | Select a fixed test/lint/format recipe by name | Ask; blocked until Phase 4 approval |
+| `run_task` | Select a fixed test/lint/format recipe by name | Ask; exact or bounded recipe grant |
 
 Arbitrary shell execution, network access, dependency installation, Git push,
 and deployment are deliberately absent from the MVP schema.

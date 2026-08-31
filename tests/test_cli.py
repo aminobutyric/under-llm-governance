@@ -18,7 +18,7 @@ from ulg.actions import (
 from ulg.cli import build_parser, main
 from ulg.config.models import ModelSettings
 from ulg.model import ChatMessage, ModelProtocolError
-from ulg.sandbox import SandboxResult
+from ulg.sandbox import DockerPreflightError, SandboxResult
 
 
 def test_dry_run_cli(capsys: object) -> None:
@@ -178,6 +178,24 @@ class _SuccessfulSandbox:
             output="passed\n",
             output_bytes=7,
         )
+
+
+class _FailedPreflight:
+    def check(self) -> object:
+        raise DockerPreflightError("rootless Docker socket is unavailable")
+
+
+def test_sandbox_preflight_error_has_actionable_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("ulg.cli.RootlessDockerPreflight", _FailedPreflight)
+
+    assert main(["sandbox-preflight"]) == 2
+
+    error = capsys.readouterr().err
+    assert "rootless user Docker service" in error
+    assert "ulg sandbox-preflight" in error
 
 
 def test_sandbox_run_cli_audits_metadata_without_output(
@@ -650,3 +668,102 @@ def test_run_cli_cleanup_survives_model_close_failure(
     assert output.exists()
     assert list((state / "workspaces").iterdir()) == []
     assert "model client close failed" in capsys.readouterr().err
+
+
+def test_retained_task_diff_audit_and_explicit_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "README.md").write_text("old\n")
+    state = tmp_path / "state"
+    output = tmp_path / "change.patch"
+    monkeypatch.setattr("ulg.cli.OllamaModel", _FailAfterPatchModel)
+    assert (
+        main(
+            [
+                "run",
+                "--workspace",
+                str(source),
+                "--task",
+                "update then review",
+                "--output",
+                str(output),
+                "--state-dir",
+                str(state),
+            ]
+        )
+        == 2
+    )
+    run_error = capsys.readouterr().err
+    task_payload = json.loads(
+        next(
+            path
+            for path in (state / "tasks").glob("*.json")
+            if not path.name.endswith(".grants.json")
+        ).read_text()
+    )
+    task_id = task_payload["task_id"]
+    assert "Ollama is unavailable" in run_error
+    assert f"diff: ulg diff {task_id}" in run_error
+    assert f"audit: ulg audit {task_id}" in run_error
+    assert f"discard: ulg discard {task_id}" in run_error
+
+    assert main(["diff", task_id, "--state-dir", str(state)]) == 0
+    diff = json.loads(capsys.readouterr().out)
+    assert diff["generation"] == 1
+    assert diff["truncated"] is False
+    assert "+new" in diff["diff"]
+
+    assert main(["audit", task_id, "--state-dir", str(state)]) == 0
+    audit = json.loads(capsys.readouterr().out)
+    assert audit["task_id"] == task_id
+    assert audit["proposed_actions"] == 1
+    assert audit["executed_actions"] == 1
+    timeline = json.dumps(audit["timeline"])
+    assert "+new" not in timeline
+    assert "--- a/README.md" not in timeline
+
+    assert main(["clean", task_id, "--state-dir", str(state), "--yes"]) == 2
+    assert "--include-retained" in capsys.readouterr().err
+    assert (state / "workspaces" / UUID(task_id).hex).exists()
+
+    assert (
+        main(
+            [
+                "clean",
+                task_id,
+                "--state-dir",
+                str(state),
+                "--include-retained",
+                "--older-than-days",
+                "1",
+                "--yes",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["deleted_task_ids"] == []
+
+    assert (
+        main(
+            [
+                "clean",
+                task_id,
+                "--state-dir",
+                str(state),
+                "--include-retained",
+                "--yes",
+            ]
+        )
+        == 0
+    )
+    cleaned = json.loads(capsys.readouterr().out)
+    assert cleaned["deleted_task_ids"] == [task_id]
+    assert cleaned["bytes_deleted"] > 0
+    assert not (state / "workspaces" / UUID(task_id).hex).exists()
+    assert not (state / "audit" / f"{task_id}.jsonl").exists()
+    assert not (state / "tasks" / f"{UUID(task_id).hex}.json").exists()
+    assert not (state / "tasks" / f"{UUID(task_id).hex}.lock").exists()

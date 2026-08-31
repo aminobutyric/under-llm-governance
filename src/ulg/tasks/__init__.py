@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: MPL-2.0
 """Durable single-user task lifecycle and effect journal."""
 
+from ulg.tasks.cleanup import (
+    CleanupCandidate,
+    inspect_cleanup_candidate,
+    remove_task_artifacts,
+)
 from ulg.tasks.state import (
     DurableEffectJournal,
     EffectOutcome,
@@ -16,6 +21,7 @@ from ulg.tasks.state import (
 )
 
 __all__ = [
+    "CleanupCandidate",
     "DurableEffectJournal",
     "EffectOutcome",
     "EffectReplayError",
@@ -27,4 +33,6 @@ __all__ = [
     "TaskState",
     "TaskStateError",
     "TaskStore",
+    "inspect_cleanup_candidate",
+    "remove_task_artifacts",
 ]
