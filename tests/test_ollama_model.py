@@ -71,6 +71,28 @@ def test_ollama_model_streams_and_strictly_validates_action() -> None:
     assert "Unified diff rules" in messages[0]["content"]
 
 
+def test_ollama_model_advertises_run_task_only_when_enabled() -> None:
+    task_id = uuid4()
+    action = ListFilesAction(task_id=task_id, rationale="inspect", path=".")
+    client = _StubClient([action.model_dump_json()])
+    settings = load_config(Path("config/policy.example.toml")).model
+    model = OllamaModel(
+        settings,
+        client=client,
+        enable_run_task=True,
+        allowed_recipes=("test", "lint"),
+    )
+
+    model.propose(task_id=task_id, messages=[])
+
+    messages = client.arguments["messages"]
+    assert isinstance(messages, list)
+    assert "run_task: recipe_name" in messages[0]["content"]
+    assert '"run_task"' in messages[0]["content"]
+    assert '"test"' in messages[0]["content"]
+    assert '"lint"' in messages[0]["content"]
+
+
 def test_ollama_model_rejects_wrong_task_and_oversized_response() -> None:
     task_id = uuid4()
     wrong_action = ListFilesAction(task_id=uuid4(), rationale="inspect", path=".")

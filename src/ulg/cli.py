@@ -6,12 +6,14 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from ulg import __version__
 from ulg.actions import ListFilesAction
+from ulg.approval import ScopedGrantStore, TerminalApprovalService, config_digest
 from ulg.audit import (
     JsonlAuditSink,
     MemoryAuditSink,
@@ -31,12 +33,21 @@ from ulg.sandbox import (
     RootlessDockerRunner,
     SandboxExecutionError,
 )
+from ulg.tasks import (
+    DurableEffectJournal,
+    TaskPhase,
+    TaskSession,
+    TaskState,
+    TaskStateError,
+    TaskStore,
+)
 from ulg.tools import CodingTools, ReadOnlyTools
 from ulg.workspace import (
     PathSecurityError,
     SecureRoot,
     SnapshotError,
     SnapshotWorkspaceManager,
+    WorkspaceRef,
 )
 
 
@@ -148,6 +159,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(run)
     _add_state_argument(run)
+    run.add_argument(
+        "--failure-mode",
+        choices=("retain", "recover"),
+        default="retain",
+        help="retain for resume (default) or export/discard completed changes",
+    )
+
+    resume = subparsers.add_parser(
+        "resume",
+        help="resume a retained durable coding task",
+        formatter_class=_HelpFormatter,
+    )
+    resume.add_argument("task_id", type=UUID)
+    resume.add_argument("--config", type=Path, default=None)
+    resume.add_argument("--output", type=Path, default=None)
+    resume.add_argument("--model", default=None)
+    _add_state_argument(resume)
+
+    discard = subparsers.add_parser(
+        "discard",
+        help="destroy a retained task workspace and revoke its grants",
+        formatter_class=_HelpFormatter,
+    )
+    discard.add_argument("task_id", type=UUID)
+    discard.add_argument("--config", type=Path, default=None)
+    _add_state_argument(discard)
     return parser
 
 
@@ -210,6 +247,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect(args)
     if args.command == "run":
         return _run_coding(args)
+    if args.command == "resume":
+        return _resume_coding(args)
+    if args.command == "discard":
+        return _discard_coding(args)
     raise AssertionError("argparse accepted an unknown command")
 
 
@@ -372,6 +413,7 @@ def _require_state_outside_workspace(workspace: Path, state_root: Path) -> None:
         state_targets = (
             (state_root / "workspaces").resolve(strict=False),
             (state_root / "audit").resolve(strict=False),
+            (state_root / "tasks").resolve(strict=False),
         )
     except OSError as error:
         raise PathSecurityError(
@@ -385,39 +427,173 @@ def _require_state_outside_workspace(workspace: Path, state_root: Path) -> None:
 
 def _run_coding(args: argparse.Namespace) -> int:
     task_id = uuid4()
-    state_root = args.state_dir or _default_state_root()
+    state_root = (args.state_dir or _default_state_root()).absolute()
     workspace = None
-    model = None
-    tools: CodingTools | None = None
-    audit: JsonlAuditSink | None = None
-    patch_exported = False
-    cleanup_reason: Literal["completed", "failed", "cancelled"] = "failed"
-    max_diff_bytes = 0
+    manager: SnapshotWorkspaceManager | None = None
+    persisted = False
     try:
-        _require_state_outside_workspace(args.workspace, state_root)
-        config = load_config(args.config)
-        max_diff_bytes = config.tools.show_diff.max_output_bytes
+        source_root = args.workspace.resolve(strict=True)
+        config_path = args.config.resolve(strict=True)
+        output_path = args.output.resolve(strict=False)
+        _require_state_outside_workspace(source_root, state_root)
+        config = load_config(config_path)
         manager = SnapshotWorkspaceManager(state_root / "workspaces", config.workspace)
-        workspace = manager.create(source=args.workspace, task_id=task_id)
-        audit_root = state_root / "audit"
-        audit_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        audit = JsonlAuditSink(
-            audit_root / f"{task_id}.jsonl",
-            max_event_bytes=config.audit.max_event_bytes,
-        )
-        model_settings = config.model
-        if args.model is not None:
-            model_settings = ModelSettings.model_validate(
-                {**config.model.model_dump(), "name": args.model}
+        workspace = manager.create(source=source_root, task_id=task_id)
+        model_name = args.model or config.model.name
+        task_store = TaskStore(state_root / "tasks")
+        task_store.create(
+            TaskState(
+                task_id=task_id,
+                source_root=source_root,
+                config_path=config_path,
+                config_digest=config_digest(config),
+                model_name=model_name,
+                task_text=args.task,
+                output_path=output_path,
+                failure_mode=args.failure_mode,
             )
-        model = OllamaModel(model_settings)
-        tools = CodingTools(
-            workspace,
-            manager,
-            config.tools,
-            original_root=args.workspace,
-            sandbox=RootlessDockerRunner(config.sandbox, config.recipes),
         )
+        persisted = True
+    except (
+        ConfigError,
+        PathSecurityError,
+        SnapshotError,
+        TaskStateError,
+        OSError,
+        ValueError,
+    ) as error:
+        if workspace is not None and manager is not None and not persisted:
+            manager.discard(workspace)
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    return _execute_saved_task(task_id=task_id, state_root=state_root, resumed=False)
+
+
+def _resume_coding(args: argparse.Namespace) -> int:
+    state_root = (args.state_dir or _default_state_root()).absolute()
+    return _execute_saved_task(
+        task_id=args.task_id,
+        state_root=state_root,
+        resumed=True,
+        config_override=args.config,
+        output_override=args.output,
+        model_override=args.model,
+    )
+
+
+def _execute_saved_task(
+    *,
+    task_id: UUID,
+    state_root: Path,
+    resumed: bool,
+    config_override: Path | None = None,
+    output_override: Path | None = None,
+    model_override: str | None = None,
+) -> int:
+    store = TaskStore(state_root / "tasks")
+    try:
+        with store.lease(task_id) as session:
+            return _execute_task_session(
+                session=session,
+                store=store,
+                state_root=state_root,
+                resumed=resumed,
+                config_override=config_override,
+                output_override=output_override,
+                model_override=model_override,
+            )
+    except (
+        ConfigError,
+        PathSecurityError,
+        SnapshotError,
+        TaskStateError,
+        OSError,
+        ValueError,
+    ) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+
+def _execute_task_session(
+    *,
+    session: TaskSession,
+    store: TaskStore,
+    state_root: Path,
+    resumed: bool,
+    config_override: Path | None,
+    output_override: Path | None,
+    model_override: str | None,
+) -> int:
+    state = session.state
+    if state.phase in {TaskPhase.EXPORT, TaskPhase.DISCARD}:
+        raise TaskStateError(f"task cannot be resumed from {state.phase} state")
+    config_path = (
+        config_override.resolve(strict=True)
+        if config_override is not None
+        else state.config_path
+    )
+    config = load_config(config_path)
+    if config_digest(config) != state.config_digest:
+        raise TaskStateError("trusted configuration changed since task creation")
+    source_root = state.source_root.resolve(strict=True)
+    _require_state_outside_workspace(source_root, state_root)
+    output_path = (
+        output_override.resolve(strict=False)
+        if output_override is not None
+        else state.output_path
+    )
+    model_name = model_override or state.model_name
+    if (
+        config_path != state.config_path
+        or output_path != state.output_path
+        or model_name != state.model_name
+    ):
+        session.update(
+            config_path=config_path,
+            output_path=output_path,
+            model_name=model_name,
+        )
+
+    manager = SnapshotWorkspaceManager(state_root / "workspaces", config.workspace)
+    workspace = manager.recover_latest(
+        task_id=state.task_id,
+        generation=session.state.generation,
+    )
+    grants = ScopedGrantStore(
+        records=store.load_grants(state.task_id),
+        persist=lambda records: store.save_grants(state.task_id, records),
+    )
+    journal = DurableEffectJournal(session)
+    interrupted = journal.reconcile(recovered_generation=workspace.generation)
+    if interrupted is not None and interrupted.recipe_name is not None:
+        grants.revoke_recipe(
+            task_id=state.task_id,
+            recipe_name=interrupted.recipe_name,
+        )
+    session.transition(TaskPhase.EXECUTE, last_error_code=None)
+
+    audit_root = state_root / "audit"
+    audit_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    audit = JsonlAuditSink(
+        audit_root / f"{state.task_id}.jsonl",
+        max_event_bytes=config.audit.max_event_bytes,
+    )
+    model_settings = ModelSettings.model_validate(
+        {**config.model.model_dump(), "name": model_name}
+    )
+    model = OllamaModel(
+        model_settings,
+        enable_run_task=True,
+        allowed_recipes=config.tools.run_task.allowed_recipes,
+    )
+    tools = CodingTools(
+        workspace,
+        manager,
+        config.tools,
+        original_root=source_root,
+        sandbox=RootlessDockerRunner(config.sandbox, config.recipes),
+    )
+    try:
         controller = ReadOnlyController(
             model=model,
             policy=BaselinePolicy(
@@ -427,37 +603,65 @@ def _run_coding(args: argparse.Namespace) -> int:
             tools=tools,
             audit=audit,
             settings=config.task,
+            config=config,
+            approval=TerminalApprovalService(input_fn=input, output=sys.stderr),
+            grants=grants,
+            effect_journal=journal,
         )
-        report = controller.run(task_id=task_id, task=args.task)
+        task_text = state.task_text
+        if resumed:
+            task_text = (
+                "Resume this retained task from its verified disposable workspace. "
+                "Re-inspect current files and do not assume an interrupted effect "
+                f"succeeded. Original task:\n{state.task_text}"
+            )
+        report = controller.run(task_id=state.task_id, task=task_text, resumed=resumed)
+        session.transition(TaskPhase.REVIEW, generation=tools.workspace.generation)
         diff = _export_coding_patch(
             tools=tools,
-            destination=args.output,
+            destination=output_path,
             audit=audit,
-            max_diff_bytes=max_diff_bytes,
+            max_diff_bytes=config.tools.show_diff.max_output_bytes,
             recovered_after_failure=False,
         )
-        patch_exported = True
-        cleanup_reason = "completed"
+        session.transition(TaskPhase.EXPORT)
+        _discard_task_workspace(
+            session=session,
+            store=store,
+            manager=manager,
+            workspace=tools.workspace,
+            audit=audit,
+            reason="completed",
+            patch_exported=True,
+        )
         print(
             json.dumps(
                 {
+                    "task_id": str(state.task_id),
                     "report": report.model_dump(mode="json"),
                     "diff": diff,
-                    "exported_patch": str(args.output),
+                    "exported_patch": str(output_path),
+                    "state": TaskPhase.DISCARD.value,
                 },
                 separators=(",", ":"),
             )
         )
         return 0
     except KeyboardInterrupt:
-        cleanup_reason = "cancelled"
-        patch_exported = _try_recovery_export(
-            tools=tools,
-            destination=args.output,
-            audit=audit,
-            max_diff_bytes=max_diff_bytes,
-        )
-        print("task cancelled", file=sys.stderr)
+        _safe_transition(session, TaskPhase.CANCEL, "task_cancelled")
+        if session.state.failure_mode == "recover":
+            _recover_and_discard_task(
+                session=session,
+                store=store,
+                manager=manager,
+                tools=tools,
+                audit=audit,
+                output_path=output_path,
+                reason="cancelled",
+                max_diff_bytes=config.tools.show_diff.max_output_bytes,
+            )
+        else:
+            _print_resume_hint(state.task_id, state_root, "task cancelled and retained")
         return 130
     except (
         ConfigError,
@@ -465,39 +669,162 @@ def _run_coding(args: argparse.Namespace) -> int:
         ModelProtocolError,
         PathSecurityError,
         SnapshotError,
+        TaskStateError,
         OSError,
         ValueError,
     ) as error:
-        cleanup_reason = "failed"
-        patch_exported = _try_recovery_export(
-            tools=tools,
-            destination=args.output,
-            audit=audit,
-            max_diff_bytes=max_diff_bytes,
-        )
-        print(f"error: {error}", file=sys.stderr)
+        _safe_transition(session, TaskPhase.RETRY, _error_code(error))
+        if session.state.failure_mode == "recover":
+            _recover_and_discard_task(
+                session=session,
+                store=store,
+                manager=manager,
+                tools=tools,
+                audit=audit,
+                output_path=output_path,
+                reason="failed",
+                max_diff_bytes=config.tools.show_diff.max_output_bytes,
+            )
+        else:
+            _print_resume_hint(state.task_id, state_root, f"task retained: {error}")
         return 2
     finally:
         try:
-            if model is not None:
-                model.close()
+            model.close()
         except Exception as error:
             print(f"warning: model client close failed: {error}", file=sys.stderr)
-        finally:
-            if workspace is not None:
-                final_workspace = tools.workspace if tools is not None else workspace
-                try:
-                    if audit is not None:
-                        audit.append(
-                            WorkspaceDiscardedEvent(
-                                task_id=task_id,
-                                generation=final_workspace.generation,
-                                reason_code=cleanup_reason,
-                                patch_exported=patch_exported,
-                            )
-                        )
-                finally:
-                    manager.discard(final_workspace)
+
+
+def _safe_transition(session: TaskSession, phase: TaskPhase, error_code: str) -> None:
+    with suppress(TaskStateError):
+        session.transition(phase, last_error_code=error_code)
+
+
+def _error_code(error: BaseException) -> str:
+    if isinstance(error, ControllerLimitError):
+        return "controller_limit"
+    if isinstance(error, ModelProtocolError):
+        return "model_protocol_error"
+    if isinstance(error, SnapshotError):
+        return "workspace_error"
+    if isinstance(error, PathSecurityError):
+        return "path_security_error"
+    if isinstance(error, TaskStateError):
+        return "task_state_error"
+    return "task_error"
+
+
+def _print_resume_hint(task_id: UUID, state_root: Path, message: str) -> None:
+    print(
+        f"{message}\ntask_id: {task_id}\n"
+        f"resume: ulg resume {task_id} --state-dir {state_root}",
+        file=sys.stderr,
+    )
+
+
+def _recover_and_discard_task(
+    *,
+    session: TaskSession,
+    store: TaskStore,
+    manager: SnapshotWorkspaceManager,
+    tools: CodingTools,
+    audit: JsonlAuditSink,
+    output_path: Path,
+    reason: Literal["failed", "cancelled"],
+    max_diff_bytes: int,
+) -> None:
+    patch_exported = _try_recovery_export(
+        tools=tools,
+        destination=output_path,
+        audit=audit,
+        max_diff_bytes=max_diff_bytes,
+    )
+    if patch_exported:
+        _safe_transition(
+            session, TaskPhase.EXPORT, session.state.last_error_code or reason
+        )
+    _discard_task_workspace(
+        session=session,
+        store=store,
+        manager=manager,
+        workspace=tools.workspace,
+        audit=audit,
+        reason=reason,
+        patch_exported=patch_exported,
+    )
+
+
+def _discard_task_workspace(
+    *,
+    session: TaskSession,
+    store: TaskStore,
+    manager: SnapshotWorkspaceManager,
+    workspace: WorkspaceRef,
+    audit: JsonlAuditSink,
+    reason: Literal["completed", "failed", "cancelled", "discarded"],
+    patch_exported: bool,
+) -> None:
+    audit.append(
+        WorkspaceDiscardedEvent(
+            task_id=workspace.task_id,
+            generation=workspace.generation,
+            reason_code=reason,
+            patch_exported=patch_exported,
+        )
+    )
+    manager.discard(workspace)
+    store.delete_grants(workspace.task_id)
+    session.transition(TaskPhase.DISCARD, generation=workspace.generation)
+
+
+def _discard_coding(args: argparse.Namespace) -> int:
+    state_root = (args.state_dir or _default_state_root()).absolute()
+    store = TaskStore(state_root / "tasks")
+    try:
+        with store.lease(args.task_id) as session:
+            state = session.state
+            if state.phase is TaskPhase.DISCARD:
+                print(json.dumps({"task_id": str(state.task_id), "state": "discard"}))
+                return 0
+            config_path = (
+                args.config.resolve(strict=True)
+                if args.config is not None
+                else state.config_path
+            )
+            config = load_config(config_path)
+            manager = SnapshotWorkspaceManager(
+                state_root / "workspaces", config.workspace
+            )
+            workspace = WorkspaceRef(
+                task_id=state.task_id,
+                root=(
+                    state_root
+                    / "workspaces"
+                    / state.task_id.hex
+                    / f"generation-{state.generation}"
+                ),
+                generation=state.generation,
+            )
+            audit_root = state_root / "audit"
+            audit_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            audit = JsonlAuditSink(
+                audit_root / f"{state.task_id}.jsonl",
+                max_event_bytes=config.audit.max_event_bytes,
+            )
+            _discard_task_workspace(
+                session=session,
+                store=store,
+                manager=manager,
+                workspace=workspace,
+                audit=audit,
+                reason="discarded",
+                patch_exported=False,
+            )
+            print(json.dumps({"task_id": str(state.task_id), "state": "discard"}))
+            return 0
+    except (ConfigError, SnapshotError, TaskStateError, OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
 
 
 def _export_coding_patch(

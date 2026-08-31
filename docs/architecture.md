@@ -49,6 +49,22 @@ tool results to the model.
 The controller must enforce maximum turns, wall-clock duration, token/context
 budget, tool-call count, and repeated-failure limits.
 
+### Durable task state
+
+Coding tasks persist a bounded controller-owned record with explicit plan,
+execute, review, retry, cancel, export, and discard states. Same-directory atomic
+replace, file and directory synchronization, monotonic revisions, and a per-task
+process lease make state updates crash-consistent and prevent concurrent resume.
+The record contains the original task text and trusted metadata, but not repository
+contents or tool output.
+
+Grant consumption is committed before an effect becomes executable. A separate
+effect marker is committed before patch or sandbox invocation, giving restarts
+at-most-once scheduling. Resume recovers only complete manifest-linked patch
+generations. Because a terminated process cannot prove the result of an in-flight
+sandbox, that result becomes unknown and its recipe grant is revoked; it is never
+silently repeated.
+
 ### Model adapter
 
 Defines a provider-neutral chat and tool-calling contract. The initial Ollama

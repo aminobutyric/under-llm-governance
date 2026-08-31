@@ -124,6 +124,61 @@ class SnapshotWorkspaceManager:
             raise SnapshotError("failed to create a safe workspace snapshot") from error
         return WorkspaceRef(task_id=task_id, root=generation_root, generation=0)
 
+    def reopen(self, *, task_id: UUID, generation: int) -> WorkspaceRef:
+        """Reopen and verify one application-owned durable generation."""
+
+        self._prepare_state_root()
+        task_root = self._state_root / task_id.hex
+        try:
+            task_metadata = task_root.lstat()
+        except OSError as error:
+            raise SnapshotError("durable task workspace is unavailable") from error
+        if not stat.S_ISDIR(task_metadata.st_mode) or task_root.is_symlink():
+            raise SnapshotError("durable task workspace root is unsafe")
+        workspace = WorkspaceRef(
+            task_id=task_id,
+            root=task_root / f"generation-{generation}",
+            generation=generation,
+        )
+        self.read_manifest(workspace, verify=True)
+        return workspace
+
+    def recover_latest(self, *, task_id: UUID, generation: int) -> WorkspaceRef:
+        """Recover the latest consecutive complete, manifest-verified generation."""
+
+        current = self.reopen(task_id=task_id, generation=generation)
+        current_manifest = self.read_manifest(current, verify=True)
+        while current.generation < self._settings.max_generations:
+            next_generation = current.generation + 1
+            task_root = current.root.parent
+            final_root = task_root / f"generation-{next_generation}"
+            staging_root = task_root / f"generation-{next_generation}.staging"
+            manifest_path = task_root / f"manifest-{next_generation}.json"
+            final_exists = final_root.exists()
+            manifest_exists = manifest_path.exists()
+            if final_exists and manifest_exists:
+                candidate = self.reopen(
+                    task_id=task_id,
+                    generation=next_generation,
+                )
+                candidate_manifest = self.read_manifest(candidate, verify=True)
+                if (
+                    candidate_manifest.parent_tree_sha256
+                    != current_manifest.tree_sha256
+                ):
+                    raise SnapshotError("durable generation manifest chain is broken")
+                current = candidate
+                current_manifest = candidate_manifest
+                continue
+            if manifest_exists and not final_exists:
+                raise SnapshotError("durable generation manifest has no workspace")
+            if final_exists:
+                self._remove_recovery_directory(final_root)
+            if staging_root.exists():
+                self._remove_recovery_directory(staging_root)
+            break
+        return current
+
     def discard(self, workspace: WorkspaceRef) -> None:
         task_root = workspace.root.parent
         if (
@@ -140,6 +195,22 @@ class SnapshotWorkspaceManager:
                     if not candidate.is_symlink():
                         candidate.chmod(0o700)
             shutil.rmtree(task_root)
+
+    @staticmethod
+    def _remove_recovery_directory(path: Path) -> None:
+        try:
+            metadata = path.lstat()
+        except OSError as error:
+            raise SnapshotError("incomplete generation cannot be inspected") from error
+        if not stat.S_ISDIR(metadata.st_mode) or path.is_symlink():
+            raise SnapshotError("incomplete generation path is unsafe")
+        for root, directory_names, _ in os.walk(path, followlinks=False):
+            Path(root).chmod(0o700)
+            for name in directory_names:
+                candidate = Path(root) / name
+                if not candidate.is_symlink():
+                    candidate.chmod(0o700)
+        shutil.rmtree(path)
 
     def seal_for_sandbox(self, workspace: WorkspaceRef) -> None:
         """Verify and make a generation readable but immutable to sandbox UIDs."""

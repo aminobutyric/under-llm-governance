@@ -78,8 +78,12 @@ class OllamaModel:
         settings: ModelSettings,
         *,
         client: _StreamingClient | None = None,
+        enable_run_task: bool = False,
+        allowed_recipes: tuple[str, ...] = (),
     ) -> None:
         self._settings = settings
+        self._allowed_recipes = allowed_recipes
+        self._enable_run_task = enable_run_task and bool(allowed_recipes)
         if client is None:
             real_client = Client(
                 host=settings.endpoint,
@@ -96,13 +100,26 @@ class OllamaModel:
 
     def propose(self, *, task_id: UUID, messages: Sequence[ChatMessage]) -> Action:
         started = time.monotonic()
+        system_prompt = _SYSTEM_PROMPT
+        if self._enable_run_task:
+            rendered_recipes = json.dumps(self._allowed_recipes, ensure_ascii=True)
+            system_prompt = system_prompt.replace(
+                "- complete: summary",
+                "- run_task: recipe_name (select one trusted configured recipe)\n"
+                "- complete: summary",
+            )
+            system_prompt += f"\nAvailable trusted recipes: {rendered_recipes}\n"
+        schema = ollama_action_json_schema(
+            include_run_task=self._enable_run_task,
+            recipe_names=self._allowed_recipes,
+        )
         request_messages: list[dict[str, str]] = [
             {
                 "role": "system",
                 "content": (
-                    f"{_SYSTEM_PROMPT}\nActive task_id: {task_id}\n"
+                    f"{system_prompt}\nActive task_id: {task_id}\n"
                     "Allowed JSON shape: "
-                    f"{json.dumps(ollama_action_json_schema(), separators=(',', ':'))}"
+                    f"{json.dumps(schema, separators=(',', ':'))}"
                 ),
             }
         ]

@@ -102,33 +102,45 @@ def action_json_schema() -> dict[str, object]:
     return _ACTION_ADAPTER.json_schema()
 
 
-def ollama_action_json_schema() -> dict[str, object]:
+def ollama_action_json_schema(
+    *, include_run_task: bool = False, recipe_names: tuple[str, ...] = ()
+) -> dict[str, object]:
     """Return a grammar-friendly hint; strict validation still uses ``Action``."""
 
+    action_types = [
+        "list_files",
+        "read_file",
+        "search_text",
+        "apply_patch",
+        "show_diff",
+    ]
+    if include_run_task:
+        action_types.append("run_task")
+    action_types.append("complete")
+    properties: dict[str, object] = {
+        "schema_version": {"type": "integer", "const": 1},
+        "task_id": {"type": "string"},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 500},
+        "type": {"type": "string", "enum": action_types},
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "recursive": {"type": "boolean"},
+        "query": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "case_sensitive": {"type": "boolean"},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "patch": {"type": "string", "minLength": 1, "maxLength": 1048576},
+    }
+    if include_run_task:
+        recipe_property: dict[str, object] = {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+        }
+        if recipe_names:
+            recipe_property["enum"] = list(recipe_names)
+        properties["recipe_name"] = recipe_property
     return {
         "type": "object",
         "additionalProperties": False,
-        "properties": {
-            "schema_version": {"type": "integer", "const": 1},
-            "task_id": {"type": "string"},
-            "rationale": {"type": "string", "minLength": 1, "maxLength": 500},
-            "type": {
-                "type": "string",
-                "enum": [
-                    "list_files",
-                    "read_file",
-                    "search_text",
-                    "apply_patch",
-                    "show_diff",
-                    "complete",
-                ],
-            },
-            "path": {"type": "string", "minLength": 1, "maxLength": 4096},
-            "recursive": {"type": "boolean"},
-            "query": {"type": "string", "minLength": 1, "maxLength": 1000},
-            "case_sensitive": {"type": "boolean"},
-            "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
-            "patch": {"type": "string", "minLength": 1, "maxLength": 1048576},
-        },
+        "properties": properties,
         "required": ["schema_version", "task_id", "rationale", "type"],
     }

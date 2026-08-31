@@ -4,11 +4,11 @@ A security-first, local coding-agent project. The agent will use a local model
 through Ollama, work within a user-selected project, and operate under
 enforceable least-privilege controls.
 
-Phases 0–3 are implemented: executable contracts, read-only inspection,
-disposable editing with patch export, and offline rootless-Docker verification.
-Phase 4 scoped approvals remain before the complete MVP. The locked baseline is
-Linux, Python 3.11+, `uv`, rootless Docker, and a locally bound Ollama server.
-Ollama is an adapter, not a hard dependency of the core design.
+This repository has executable read-only inspection, disposable editing,
+offline sandbox verification, and scoped terminal approval workflows. The
+locked baseline is Linux, Python 3.11+, `uv`, rootless Docker, and a locally
+bound Ollama server. Ollama is an adapter, not a hard dependency of the core
+design.
 
 The repository is licensed under `MPL-2.0`.
 
@@ -18,8 +18,7 @@ The model never receives ambient access to the host. It proposes typed actions
 such as reading a relative path, applying a patch, or running a configured test.
 A trusted controller validates every proposal and applies deterministic policy.
 Implemented `allow` decisions execute inside disposable boundaries; `ask`
-decisions remain blocked until Phase 4 adds trusted approval presentation and
-exact grants.
+decisions require trusted approval presentation and exact, bounded grants.
 
 Security instructions in a system prompt are useful guidance, but they are not
 a permission boundary.
@@ -38,9 +37,9 @@ a permission boundary.
   default.
 - Model output, repository content, tool output, and dependency output are all
   treated as untrusted input.
-- Model-requested commands are policy-gated and will require a narrow Phase 4
-  approval grant for an exact configured recipe. The implemented Phase 3
-  `sandbox-run` command is an explicit operator action.
+- Model-requested commands are policy-gated and require a narrow approval grant
+  for an exact configured recipe. The `sandbox-run` command remains an explicit
+  operator action.
 - Every proposed and executed action produces an audit record with secrets
   redacted before serialization or persistence.
 
@@ -138,9 +137,10 @@ uv run --frozen ulg sandbox-run \
   --recipe javascript_test
 ```
 
-`sandbox-run` is the direct operator acceptance path. Model-requested
-`run_task` remains policy-gated until scoped approval grants are implemented in
-Phase 4.
+`sandbox-run` is the direct operator acceptance path. During `ulg run`, the
+model may also request an allowlisted recipe. The controller displays its
+trusted command and sandbox limits and lets the user deny it, approve that exact
+action once, or issue a time- and use-bounded grant for that recipe.
 
 The dry run crosses model, schema, policy, controller, and audit boundaries but
 does not read a workspace or execute a tool.
@@ -176,18 +176,47 @@ The output path must not already exist. The exported unified diff is the only
 artifact written outside application state; applying it to the original project
 is deliberately left to the user.
 
+Coding tasks have durable lifecycle state. A failure or cancellation keeps the
+last manifest-verified generation by default and prints its task identifier:
+
+```console
+uv run ulg resume TASK_ID
+uv run ulg discard TASK_ID
+```
+
+`resume` reopens the verified generation and refuses changed trusted
+configuration. It does not replay an interrupted effect: a fully published patch
+is recovered from its manifest, while an interrupted sandbox result is marked
+unknown and its recipe grant is revoked before the model continues. Use
+`--failure-mode recover` with `ulg run` to retain the former behavior of exporting
+the last complete patch and discarding the task after a controlled failure.
+
+Durable task files are mode `0600` beneath the application state directory and
+contain the original task text, trusted paths and configuration digest, current
+generation, lifecycle phase, and bounded effect journal. Successful export and
+explicit discard destroy workspace generations and revoke stored grants; the
+small lifecycle record remains for later audit and cleanup commands.
+
+Approval prompts are written to the terminal separately from the final JSON
+report. Patch prompts contain parsed file operations rather than raw model prose
+or patch content. Recipe prompts contain only trusted configuration, including
+the fixed command, pinned image, offline sandbox limits, expiry, and use count.
+Invalid input and unavailable approval handling fail closed.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security-model.md)
 - [Development plan](docs/development-plan.md)
 - [MVP implementation status](docs/mvp-status.md)
+- [MVP readiness checklist](docs/mvp-checklist.md)
 - [CLI guide](docs/cli.md)
 - [Testing through Phase 3](docs/testing.md)
 - [Trust-boundary decision](docs/decisions/0001-trusted-controller.md)
 - [Python implementation baseline](docs/decisions/0002-python-baseline.md)
 - [Security mechanisms](docs/decisions/0003-security-mechanisms.md)
 - [License decision](docs/decisions/0004-license-mpl.md)
+- [Durable task-state decision](docs/decisions/0005-durable-task-state.md)
 - [Open-core strategy](docs/open-core-strategy.md)
 - [Example policy](config/policy.example.toml)
 

@@ -62,6 +62,7 @@ max_patch_bytes = 1_048_576
 max_changed_files = 100
 ask_above_changed_files = 20
 ask_on_delete = true
+grant_ttl_seconds = 600
 
 [tools.show_diff]
 decision = "allow"

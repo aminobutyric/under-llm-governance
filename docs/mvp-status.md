@@ -129,16 +129,66 @@ output-flood, and workspace disk limits; and PID, memory, environment-secret,
 read-only-input, and original-integrity containment. The public CLI smoke tests
 also passed for all three languages, and no sandbox container remained.
 
-Required next: Phase 4 exact grants and approval presentation before the model
-can request recipe execution in the normal coding loop.
+The first Phase 4 increment now supplies the exact grants and approval
+presentation required for model-requested recipe execution in the coding loop.
 
 ## Phase 4: approvals and complete workflow
 
-Status: not implemented.
+Status: in progress.
 
-Required next: exact recipe grants with digest/task/use/expiry binding, normalized
-approval prompts, task persistence and resume behavior, review/export/discard
-commands, and a final report that separates model claims from verified results.
+The scoped-grant contract and first interactive approval workflow are
+implemented:
+
+- Exact-action grants bind the complete canonical action digest, action ID,
+  task, complete trusted-configuration digest, one use, and a UTC expiry.
+- Recipe grants bind the recipe name, trusted argv and sandbox-profile digest,
+  task, complete trusted-configuration digest, configured maximum uses, and a
+  UTC expiry.
+- Grants can be issued only from the matching `ask` policy decision. Consumption
+  is serialized and rejects unknown, expired, exhausted, wrong-task,
+  wrong-scope, changed-configuration, mismatched-action, and replayed-action
+  presentations without consuming a valid use on failure.
+- Automated tests cover strict grant validation, deterministic security-relevant
+  digests, expiry, forged identifiers, action mutation, task/configuration
+  mismatch, replay, and concurrent maximum-use enforcement.
+- Controller-generated patch prompts show only parsed file operations and size;
+  they never render model rationale or raw patch content.
+- Recipe prompts show the trusted recipe argv, pinned image, offline sandbox
+  profile, expiry, and use bound. Users can deny, approve one exact action, or
+  approve the exact recipe for its configured bounded uses.
+- `ulg run` advertises only configured recipe names to Ollama, consumes a valid
+  grant before execution, reuses bounded recipe grants without reprompting, and
+  records approval, grant, tool, and sandbox lifecycle events.
+- The final task report now includes approved-action and verified sandbox-run
+  counts in addition to changed files and the model-authored summary.
+- Automated integration tests cover approval, denial, bounded reuse, prompt
+  injection resistance, original-project integrity, and CLI sandbox execution.
+- Durable task records use strict, bounded, mode-`0600` JSON with atomic replace,
+  directory synchronization, monotonic revisions, and a non-blocking process
+  lease. Explicit plan, execute, review, retry, cancel, export, and discard states
+  reject invalid transitions.
+- Grant issuance and consumption commit complete use/action-ID state before the
+  in-memory mutation becomes executable. Valid recipe grants can survive a
+  restart, while configuration changes still revoke them.
+- Effect scheduling is persisted before patch or sandbox execution. Resume walks
+  and verifies the consecutive manifest chain, recovers a fully published patch,
+  records an interrupted sandbox outcome as unknown, and revokes its recipe grant
+  rather than silently repeating it.
+- `ulg resume TASK_ID` continues a retained task from its verified generation;
+  `ulg discard TASK_ID` destroys its workspace and stored grants. Failures retain
+  state by default, while `--failure-mode recover` preserves bounded recovery
+  export followed by discard.
+- Restart tests cover atomic revisions, malformed state, exclusive leases,
+  published-generation recovery, durable grant replay rejection, unknown sandbox
+  outcomes, stale configuration, CLI resume, and explicit discard.
+
+The Phase 4 durability gate passes the lockfile check, Ruff formatting and lint,
+strict mypy, and all 103 non-Docker automated tests. Four live rootless-Docker
+acceptance groups remain environment-gated.
+
+Required next: review and operations UX (`ulg diff`, `ulg audit`, and `ulg clean`)
+plus a complete audit-derived final report. The remaining adversarial acceptance
+matrix follows that increment.
 
 ## MVP completion rule
 

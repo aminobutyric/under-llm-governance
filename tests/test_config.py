@@ -40,6 +40,21 @@ def test_run_task_policy_must_remain_ask_and_have_unique_recipe_names() -> None:
     with pytest.raises(ValidationError, match="must not contain duplicates"):
         AppConfig.model_validate(duplicate_payload)
 
+    excessive_grant = config.model_dump()
+    excessive_grant["tools"]["run_task"]["grant_max_uses"] = 1_001
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(excessive_grant)
+
+    excessive_ttl = config.model_dump()
+    excessive_ttl["tools"]["run_task"]["grant_ttl_seconds"] = 86_401
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(excessive_ttl)
+
+    excessive_patch_ttl = config.model_dump()
+    excessive_patch_ttl["tools"]["apply_patch"]["grant_ttl_seconds"] = 86_401
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(excessive_patch_ttl)
+
 
 def test_sandbox_image_and_resource_limits_are_strict() -> None:
     config = load_config(Path("config/policy.example.toml"))

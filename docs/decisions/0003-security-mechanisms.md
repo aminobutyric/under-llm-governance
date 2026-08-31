@@ -35,8 +35,12 @@ old generation active and yields structured error details.
 
 Read, search, diff, and ordinary patches inside the disposable workspace are
 automatic and logged. Policy may require approval for deletion or large-change
-thresholds. A command grant names the exact trusted recipe digest, task, maximum
-uses, and expiry. Broad task-level approval does not exist.
+thresholds. An action grant binds the exact canonical action digest and ID and
+is single-use. A command grant names the exact trusted recipe and sandbox
+digest, task, maximum uses, and expiry. Both bind the complete trusted-policy
+digest so a configuration change revokes them. Reusing an action ID is rejected
+even when a recipe grant has remaining uses. Broad task-level approval does not
+exist.
 
 ### Commands and resources
 

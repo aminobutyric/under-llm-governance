@@ -18,7 +18,7 @@ class AuditEventBase(BaseModel):
 
 
 class TaskLifecycleEvent(AuditEventBase):
-    event_type: Literal["task_started", "task_completed", "task_failed"]
+    event_type: Literal["task_started", "task_resumed", "task_completed", "task_failed"]
     reason_code: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,63}$")
 
 
@@ -29,6 +29,50 @@ class ActionDecisionEvent(AuditEventBase):
     decision: DecisionKind
     reason_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     executed: bool = False
+
+
+class ApprovalRequestedEvent(AuditEventBase):
+    event_type: Literal["approval_requested"] = "approval_requested"
+    action_id: UUID
+    action_type: Literal["apply_patch", "run_task"]
+    request_type: Literal["patch", "recipe"]
+    action_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    recipe_name: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    changed_file_count: int = Field(ge=0, default=0)
+    deleted_file_count: int = Field(ge=0, default=0)
+    patch_bytes: int = Field(ge=0, default=0)
+
+
+class ApprovalResolvedEvent(AuditEventBase):
+    event_type: Literal["approval_resolved"] = "approval_resolved"
+    action_id: UUID
+    resolution: Literal["deny", "approve_once", "approve_recipe"]
+
+
+class GrantIssuedEvent(AuditEventBase):
+    event_type: Literal["grant_issued"] = "grant_issued"
+    action_id: UUID
+    grant_id: UUID
+    scope_type: Literal["action", "recipe"]
+    scope_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    config_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    max_uses: int = Field(gt=0, le=1_000)
+    expires_at: datetime
+
+
+class GrantConsumedEvent(AuditEventBase):
+    event_type: Literal["grant_consumed"] = "grant_consumed"
+    action_id: UUID
+    grant_id: UUID
+    scope_type: Literal["action", "recipe"]
+    remaining_uses: int = Field(ge=0, le=1_000)
+
+
+class GrantRejectedEvent(AuditEventBase):
+    event_type: Literal["grant_rejected"] = "grant_rejected"
+    action_id: UUID
+    grant_id: UUID
+    reason_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
 
 
 class ToolFinishedEvent(AuditEventBase):
@@ -86,13 +130,18 @@ class PatchExportedEvent(AuditEventBase):
 class WorkspaceDiscardedEvent(AuditEventBase):
     event_type: Literal["workspace_discarded"] = "workspace_discarded"
     generation: int = Field(ge=0)
-    reason_code: Literal["completed", "failed", "cancelled"]
+    reason_code: Literal["completed", "failed", "cancelled", "discarded"]
     patch_exported: bool
 
 
 AuditEvent = Annotated[
     TaskLifecycleEvent
     | ActionDecisionEvent
+    | ApprovalRequestedEvent
+    | ApprovalResolvedEvent
+    | GrantIssuedEvent
+    | GrantConsumedEvent
+    | GrantRejectedEvent
     | ToolFinishedEvent
     | ModelFailureEvent
     | WorkspaceGenerationEvent
