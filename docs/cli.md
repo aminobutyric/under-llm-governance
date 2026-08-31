@@ -16,9 +16,28 @@ cleanup.
 - `--output` must name a new path outside the selected workspace and ULG task
   state.
 
-The default policy path is `config/policy.example.toml` relative to the current
-directory. For commands launched elsewhere, pass an absolute `--config` path or
-set `ULG_CONFIG` to one.
+Policy discovery is deterministic: explicit `--config`, then `ULG_CONFIG`, then
+`$XDG_CONFIG_HOME/ulg/policy.toml` (or `~/.config/ulg/policy.toml`). It never
+trusts a policy merely because it exists in the target project.
+
+## Initialize the user policy
+
+Create the default private policy and select the reference Ollama model:
+
+```console
+ulg init
+ollama pull qwen3-coder:30b
+```
+
+The new file is mode `0600`; its parent directory is private when newly created.
+Initialization refuses to overwrite anything by default and rejects symlink or
+non-regular destinations even with `--force`. To make an intentional atomic
+update or use another model:
+
+```console
+ulg init --force --model qwen3:8b
+ulg init --output /trusted/path/policy.toml
+```
 
 ## Prepare shell paths
 
@@ -27,11 +46,10 @@ moves:
 
 ```console
 export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
-export ULG_CONFIG="$ULG_REPO/config/policy.example.toml"
 ```
 
-`ULG_REPO` is a shell convenience used by the examples. `ULG_CONFIG` is read by
-the CLI and becomes the default for `--config`.
+`ULG_REPO` is a shell convenience used by the development examples. A custom
+policy can still be selected with `ULG_CONFIG` or `--config`.
 
 ## Run from the repository
 
@@ -53,22 +71,19 @@ unchanged. In this example, `--workspace .` means `/path/to/small-project`:
 cd /path/to/small-project
 uv run --project "$ULG_REPO" --frozen ulg inspect \
   --workspace . \
-  --config "$ULG_CONFIG" \
   --task "Explain this project and cite the files you read" \
-  --model qwen3:14b
+  --model qwen3-coder:30b
 ```
 
-Because `ULG_CONFIG` was exported above, the explicit `--config` option may be
-omitted. Keeping it in copied commands makes the trust source visible.
+The initialized XDG policy is used automatically.
 
 An absolute workspace works from any current directory too:
 
 ```console
 uv run --project "$ULG_REPO" --frozen ulg inspect \
   --workspace /absolute/path/to/small-project \
-  --config "$ULG_CONFIG" \
   --task "Explain this project and cite the files you read" \
-  --model qwen3:14b
+  --model qwen3-coder:30b
 ```
 
 ## Optional editable command installation
@@ -82,15 +97,14 @@ ulg --help
 ```
 
 The trusted policy is deliberately not inferred from an arbitrary target
-project. Continue to export `ULG_CONFIG` or pass `--config`:
+project. With `ulg init` complete, no configuration argument is needed:
 
 ```console
 cd /path/to/small-project
 ulg inspect \
   --workspace . \
-  --config "$ULG_CONFIG" \
   --task "Explain this project and cite the files you read" \
-  --model qwen3:14b
+  --model qwen3-coder:30b
 ```
 
 Re-run the editable install only if the environment is removed; source changes
@@ -100,6 +114,7 @@ are visible without reinstalling.
 
 | Command | Purpose | Needs Ollama | Needs rootless Docker |
 |---|---|---:|---:|
+| `ulg init` | Create a private trusted user policy | No | No |
 | `ulg dry-run` | Exercise contracts without filesystem or process effects | No | No |
 | `ulg inspect` | Inspect a disposable read-only snapshot | Yes | No |
 | `ulg run` | Edit disposable generations and export a patch | Yes | No |

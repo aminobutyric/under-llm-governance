@@ -15,10 +15,16 @@ from ulg.actions import (
     RunTaskAction,
     ShowDiffAction,
 )
-from ulg.cli import build_parser, main
+from ulg.cli import _resolve_config_path, build_parser, main
+from ulg.config import load_config
 from ulg.config.models import ModelSettings
 from ulg.model import ChatMessage, ModelProtocolError
 from ulg.sandbox import DockerPreflightError, SandboxResult
+
+
+@pytest.fixture(autouse=True)
+def _trusted_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ULG_CONFIG", str(Path("config/policy.example.toml").resolve()))
 
 
 def test_dry_run_cli(capsys: object) -> None:
@@ -30,7 +36,7 @@ def test_dry_run_cli(capsys: object) -> None:
     assert payload["executed"] is False
 
 
-def test_cli_paths_and_external_config_default_are_explicit(
+def test_cli_keeps_config_discovery_separate_from_argument_parsing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = Path("/trusted/ulg-policy.toml")
@@ -47,7 +53,66 @@ def test_cli_paths_and_external_config_default_are_explicit(
     )
 
     assert args.workspace == Path("../small-project")
-    assert args.config == config
+    assert args.config is None
+
+
+def test_config_discovery_precedence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    explicit = tmp_path / "explicit.toml"
+    environment = tmp_path / "environment.toml"
+    xdg = tmp_path / "xdg" / "ulg" / "policy.toml"
+    for path in (explicit, environment, xdg):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("trusted")
+
+    monkeypatch.setenv("ULG_CONFIG", str(environment))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert _resolve_config_path(explicit) == explicit
+    assert _resolve_config_path(None) == environment
+
+    monkeypatch.delenv("ULG_CONFIG")
+    assert _resolve_config_path(None) == xdg
+
+
+def test_init_creates_private_valid_policy_and_refuses_overwrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("ULG_CONFIG")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    assert main(["init"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    policy = tmp_path / "config" / "ulg" / "policy.toml"
+    assert output["config"] == str(policy)
+    assert output["model"] == "qwen3-coder:30b"
+    assert policy.stat().st_mode & 0o777 == 0o600
+    assert load_config(policy).model.name == "qwen3-coder:30b"
+    original = policy.read_bytes()
+
+    assert main(["init"]) == 2
+    assert "--force" in capsys.readouterr().err
+    assert policy.read_bytes() == original
+
+    assert main(["init", "--force", "--model", "qwen3:8b"]) == 0
+    capsys.readouterr()
+    assert load_config(policy).model.name == "qwen3:8b"
+
+
+def test_init_rejects_existing_symlink_even_with_force(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = tmp_path / "target.toml"
+    target.write_text("do not replace")
+    output = tmp_path / "policy.toml"
+    output.symlink_to(target)
+
+    assert main(["init", "--output", str(output), "--force"]) == 2
+    assert "unsafe" in capsys.readouterr().err
+    assert target.read_text() == "do not replace"
 
 
 class _ImmediateModel:

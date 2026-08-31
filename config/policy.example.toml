@@ -1,6 +1,7 @@
 # Trusted local policy consumed by the CLI.
-# Through Phase 3, the CLI loads exactly this selected file; it does not merge
-# configuration from the target project.
+# The CLI loads exactly this trusted file; it does not merge configuration from
+# the target project. The all-zero runner digest is an unreleased beta sentinel
+# and must be replaced by the tested GHCR digest before publishing v0.1.0b1.
 version = 1
 
 [model]
@@ -88,8 +89,7 @@ decision = "deny"
 
 [sandbox]
 backend = "rootless_docker"
-image = "ulg-runner:phase3"
-image_digest = "sha256:151dc0f333af6ab697f300adf95b6d2f16a66555b1d8ec20d3c09c3c383b9bdb"
+image = "ghcr.io/aminobutyric/under-llm-governance-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 container_uid = 65532
 container_gid = 65532
 network = "none"

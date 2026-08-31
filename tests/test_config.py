@@ -58,9 +58,10 @@ def test_run_task_policy_must_remain_ask_and_have_unique_recipe_names() -> None:
 
 def test_sandbox_image_and_resource_limits_are_strict() -> None:
     config = load_config(Path("config/policy.example.toml"))
+    assert config.sandbox.image_digest == f"sha256:{'0' * 64}"
 
     mutable_digest = config.model_dump()
-    mutable_digest["sandbox"]["image_digest"] = "latest"
+    mutable_digest["sandbox"]["image"] = "ulg-runner:latest"
     with pytest.raises(ValidationError):
         AppConfig.model_validate(mutable_digest)
 

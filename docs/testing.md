@@ -14,9 +14,10 @@ Prepare reusable paths:
 
 ```console
 export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
-export ULG_CONFIG="$ULG_REPO/config/policy.example.toml"
 cd "$ULG_REPO"
 uv sync --frozen
+uv run --frozen ulg init
+export ULG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/ulg/policy.toml"
 ```
 
 Check Ollama models before choosing `--model`:
@@ -51,16 +52,18 @@ uv run --frozen ulg sandbox-preflight
 Expected fields include `"rootless":true`, `"cgroup_version":"2"`, and
 `"cgroup_driver":"systemd"`.
 
-If the runner image has not been built on this machine:
+Read and pull the exact digest-qualified runner from the initialized policy:
 
 ```console
-docker build --pull=false --tag ulg-runner:phase3 "$ULG_REPO/runner"
-docker image inspect ulg-runner:phase3 --format '{{.Id}}'
+runner_ref="$(python -c 'import tomllib,pathlib; print(tomllib.loads((pathlib.Path.home()/".config/ulg/policy.toml").read_text())["sandbox"]["image"])')"
+docker pull "$runner_ref"
+docker image inspect "$runner_ref" --format '{{json .RepoDigests}}'
 ```
 
-The reported image ID must exactly equal `sandbox.image_digest` in the trusted
-policy. A rebuild may produce a new ID; reviewing and changing that digest is a
-trusted-operator action.
+The reported repository digests must contain the exact `sandbox.image` value.
+The all-zero value in an unreleased candidate is a sentinel, not a runnable
+image; live acceptance starts only after it is replaced by the tested GHCR
+digest. Reviewing and changing that reference is a trusted-operator action.
 
 Run the adversarial acceptance suite:
 

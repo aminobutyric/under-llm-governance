@@ -50,7 +50,7 @@ negative tests, documentation, and relevant acceptance evidence are complete.
 
 - [x] Refresh README and source-layout documentation for the approval increment.
 - [ ] Add the dependency-security check required by the development plan to CI.
-- [ ] Test installation and the quick start on clean Python 3.11 and 3.13 systems.
+- [x] Test installation and the quick start on clean Python 3.11 and 3.13 systems.
 - [ ] Document operator setup, state retention, cleanup, recovery, and limitations.
 - [ ] Record the runner image digest, inventories, and complete acceptance evidence.
 - [ ] Mark the MVP complete only after Phases 0-4 and all security gates pass.

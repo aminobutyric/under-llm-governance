@@ -104,8 +104,9 @@ Status: complete.
 - `ulg sandbox-preflight` addresses only the current user's standard rootless
   Unix socket and fails closed unless the socket is user-owned, Docker reports
   rootless mode, and cgroup v2 uses the systemd driver.
-- The trusted runner tag is checked against a pinned image ID and execution uses
-  that digest with `--pull never`. The image has a digest-pinned Python base,
+- The trusted runner is configured as an exact digest-qualified GHCR reference;
+  execution uses that same reference with `--pull never` and verifies it appears
+  in Docker's repository digests. The image has a digest-pinned Python base,
   runs as UID/GID 65532, and includes Python/pytest/Ruff, Go, and Node. Exact
   Debian and Python inventories are embedded in the image.
 - `ulg sandbox-run` copies a verified disposable generation through a read-only
@@ -182,15 +183,20 @@ implemented:
   published-generation recovery, durable grant replay rejection, unknown sandbox
   outcomes, stale configuration, CLI resume, and explicit discard.
 
-The Phase 4 durability gate passes the lockfile check, Ruff formatting and lint,
-strict mypy, and all 103 non-Docker automated tests. Four live rootless-Docker
+The current gate passes the lockfile check, Ruff formatting and lint, strict
+mypy, and all 115 non-Docker automated tests. Four live rootless-Docker
 acceptance groups remain environment-gated.
 
 The review and operations increment adds bounded verified `ulg diff`, strict
 redacted `ulg audit`, exact-target `ulg clean` with age/size preview and retained
 work protection, actionable task commands, and an audit-derived completion
-summary. Required next: finish targeted operational error guidance, then execute
-the remaining adversarial acceptance and release-readiness matrix.
+summary. Required next: execute the remaining adversarial acceptance and
+release-readiness matrix. The v0.1.0b1 foundation also centralizes version
+metadata, packages the trusted
+policy template, adds private `ulg init`, discovers policy by explicit
+argument/environment/XDG precedence, and requires an immutable GHCR runner
+reference. Its temporary all-zero digest sentinel must be replaced with the
+tested published digest before release.
 
 ## MVP completion rule
 

@@ -4,9 +4,11 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 import sys
 from collections.abc import Sequence
 from contextlib import ExitStack, suppress
+from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
@@ -24,7 +26,7 @@ from ulg.audit import (
     WorkspaceDiscardedEvent,
     read_audit_summary,
 )
-from ulg.config import ConfigError, load_config
+from ulg.config import ConfigError, load_config, parse_config
 from ulg.config.models import ModelSettings
 from ulg.controller import Controller, ControllerLimitError, ReadOnlyController
 from ulg.model import FakeModel, ModelProtocolError, OllamaModel
@@ -62,6 +64,9 @@ class _HelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
         return super()._get_help_string(action) or ""
 
 
+_REFERENCE_MODEL = "qwen3-coder:30b"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ulg",
@@ -73,6 +78,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init = subparsers.add_parser(
+        "init",
+        help="create a private trusted user policy from the packaged template",
+        formatter_class=_HelpFormatter,
+    )
+    init.add_argument(
+        "--model",
+        default=_REFERENCE_MODEL,
+        help="local Ollama model written into the trusted policy",
+    )
+    init.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="policy destination; defaults to the XDG user configuration path",
+    )
+    init.add_argument(
+        "--force",
+        action="store_true",
+        help="replace an existing regular policy file atomically",
+    )
 
     dry_run = subparsers.add_parser(
         "dry-run",
@@ -234,15 +261,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_config_argument(parser: argparse.ArgumentParser) -> None:
-    configured = os.environ.get("ULG_CONFIG")
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path(configured) if configured else Path("config/policy.example.toml"),
-        help=(
-            "trusted policy TOML; set ULG_CONFIG for an invocation-independent "
-            "default (a relative path is resolved from the current directory)"
-        ),
+        default=None,
+        help=("trusted policy TOML; otherwise use ULG_CONFIG or the XDG user policy"),
     )
 
 
@@ -267,6 +290,8 @@ def _nonnegative_int(value: str) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "init":
+        return _initialize_config(args)
     if args.command == "dry-run":
         task_id = uuid4()
         action = ListFilesAction(
@@ -319,7 +344,7 @@ def _run_inspect(args: argparse.Namespace) -> int:
     model = None
     try:
         _require_state_outside_workspace(args.workspace, state_root)
-        config = load_config(args.config)
+        config = load_config(_resolve_config_path(args.config))
         manager = SnapshotWorkspaceManager(state_root / "workspaces", config.workspace)
         workspace = manager.create(source=args.workspace, task_id=task_id)
         audit_root = state_root / "audit"
@@ -385,7 +410,7 @@ def _run_sandbox_recipe(args: argparse.Namespace) -> int:
     cleanup_reason: Literal["completed", "failed", "cancelled"] = "failed"
     try:
         _require_state_outside_workspace(args.workspace, state_root)
-        config = load_config(args.config)
+        config = load_config(_resolve_config_path(args.config))
         if args.recipe not in config.tools.run_task.allowed_recipes:
             raise ValueError("recipe is not allowlisted by trusted configuration")
         manager = SnapshotWorkspaceManager(state_root / "workspaces", config.workspace)
@@ -458,6 +483,130 @@ def _run_sandbox_recipe(args: argparse.Namespace) -> int:
             manager.discard(workspace)
 
 
+def _initialize_config(args: argparse.Namespace) -> int:
+    destination = (
+        args.output.absolute() if args.output is not None else _default_config_path()
+    )
+    try:
+        template = _read_policy_template()
+        marker = 'name = "qwen3-coder:30b"'
+        if template.count(marker) != 1:
+            raise ConfigError("packaged policy template has no unique model marker")
+        rendered = template.replace(
+            marker,
+            f"name = {json.dumps(args.model, ensure_ascii=True)}",
+            1,
+        ).encode("utf-8")
+        parse_config(rendered)
+        written = _write_private_config(destination, rendered, force=args.force)
+    except (ConfigError, OSError, ValueError) as error:
+        print(f"error: {_describe_error(error)}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "config": str(written),
+                "model": args.model,
+                "next_commands": {
+                    "ollama": f"ollama pull {args.model}",
+                    "preflight": "ulg sandbox-preflight",
+                    "inspect": (
+                        "ulg inspect --workspace /path/to/project "
+                        '--task "Explain this project"'
+                    ),
+                },
+            },
+            separators=(",", ":"),
+        )
+    )
+    return 0
+
+
+def _read_policy_template() -> str:
+    packaged = files("ulg").joinpath("resources", "policy.toml")
+    try:
+        return packaged.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        development_copy = (
+            Path(__file__).resolve().parents[2] / "config" / ("policy.example.toml")
+        )
+        try:
+            return development_copy.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ConfigError("packaged policy template is unavailable") from error
+
+
+def _write_private_config(destination: Path, payload: bytes, *, force: bool) -> Path:
+    if not destination.name or "\x00" in str(destination):
+        raise ConfigError("policy destination is invalid")
+    try:
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        parent = destination.parent.resolve(strict=True)
+        target = parent / destination.name
+        parent_metadata = parent.lstat()
+        if not stat.S_ISDIR(parent_metadata.st_mode):
+            raise ConfigError("policy parent is not a directory")
+        try:
+            existing = target.lstat()
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            if not force:
+                raise ConfigError("policy already exists; pass --force to replace it")
+            if not stat.S_ISREG(existing.st_mode) or target.is_symlink():
+                raise ConfigError("existing policy path is unsafe")
+        temporary = parent / f".{target.name}.{uuid4().hex}.tmp"
+        try:
+            file_fd = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            try:
+                view = memoryview(payload)
+                while view:
+                    written = os.write(file_fd, view)
+                    if written <= 0:
+                        raise ConfigError("policy write made no progress")
+                    view = view[written:]
+                os.fsync(file_fd)
+            finally:
+                os.close(file_fd)
+            os.replace(temporary, target)
+            directory_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return target
+    except ConfigError:
+        raise
+    except OSError as error:
+        raise ConfigError("policy cannot be written safely") from error
+
+
+def _default_config_path() -> Path:
+    configured = os.environ.get("XDG_CONFIG_HOME")
+    root = Path(configured) if configured else Path.home() / ".config"
+    return (root / "ulg" / "policy.toml").absolute()
+
+
+def _resolve_config_path(explicit: Path | None) -> Path:
+    candidate = explicit
+    if candidate is None:
+        configured = os.environ.get("ULG_CONFIG")
+        candidate = Path(configured) if configured else _default_config_path()
+    try:
+        return candidate.resolve(strict=True)
+    except OSError as error:
+        raise ConfigError(
+            f"trusted policy is unavailable at {candidate}; run `ulg init` or pass "
+            "--config"
+        ) from error
+
+
 def _default_state_root() -> Path:
     configured = os.environ.get("XDG_STATE_HOME")
     if configured:
@@ -491,7 +640,7 @@ def _run_coding(args: argparse.Namespace) -> int:
     persisted = False
     try:
         source_root = args.workspace.resolve(strict=True)
-        config_path = args.config.resolve(strict=True)
+        config_path = _resolve_config_path(args.config)
         output_path = args.output.resolve(strict=False)
         _require_state_outside_workspace(source_root, state_root)
         config = load_config(config_path)
