@@ -62,7 +62,7 @@ src/ulg/
   config/                    Strict TOML configuration loading
 tests/                       Unit, integration, and security suites
 runner/                      Digest-pinned multi-language sandbox image
-.github/workflows/ci.yml     Locked lint, type-check, and test workflow
+.github/workflows/           Locked CI and tag-driven release workflows
 config/                      Example trusted policy files
 docs/                        Architecture, security model, plans, and ADRs
 testdata/adversarial/        Inert injection, path, and resource fixtures
@@ -127,10 +127,9 @@ docker pull "$(python -c 'import tomllib,pathlib; print(tomllib.loads((pathlib.P
 uv run --frozen ulg sandbox-preflight
 ```
 
-The checked-in template temporarily contains an all-zero unreleased-candidate
-sentinel. It will be replaced with the tested GHCR digest before v0.1.0b1 is
-published. Never treat the sentinel as a runnable or releasable image. Replacing
-the configured reference remains an explicit trusted-operator action.
+The checked-in template contains the exact tested candidate digest. That
+manifest is public in GHCR and has passed an anonymous digest-qualified pull.
+Replacing the configured reference remains an explicit trusted-operator action.
 
 Run the checked-in offline smoke projects without exposing their original
 directories to a writable mount:
@@ -233,12 +232,18 @@ Invalid input and unavailable approval handling fail closed.
 
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security-model.md)
+- [v0.1 security acceptance matrix](docs/security-acceptance-matrix.md)
+- [v0.1.0b1 runner acceptance evidence](docs/release-evidence/v0.1.0b1-runner.md)
 - [Development plan](docs/development-plan.md)
 - [MVP implementation status](docs/mvp-status.md)
 - [MVP readiness checklist](docs/mvp-checklist.md)
 - [v0.1 beta release checklist](docs/beta-release-checklist.md)
+- [Beta operations guide](docs/operations.md)
+- [Release procedure](docs/releasing.md)
+- [Beta support](SUPPORT.md)
+- [Security reporting](SECURITY.md)
 - [CLI guide](docs/cli.md)
-- [Testing through Phase 3](docs/testing.md)
+- [Testing through Phase 4](docs/testing.md)
 - [Trust-boundary decision](docs/decisions/0001-trusted-controller.md)
 - [Python implementation baseline](docs/decisions/0002-python-baseline.md)
 - [Security mechanisms](docs/decisions/0003-security-mechanisms.md)

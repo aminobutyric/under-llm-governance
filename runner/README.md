@@ -14,10 +14,11 @@ docker build --pull=false \
   "$ULG_REPO/runner"
 ```
 
-Milestone 3 will push this candidate, resolve its GHCR digest, complete live
-acceptance, and replace the all-zero sentinel in `sandbox.image`. Runtime
-execution and verification both use that exact `name@sha256:...` reference with
-`--pull never`; a mutable tag is never accepted as trusted configuration.
+Milestone 3 resolves the candidate digest, records it in `sandbox.image`, and
+runs live acceptance before publication. Runtime execution and verification
+both use that exact `name@sha256:...` reference with `--pull never`; a mutable
+tag is never accepted as trusted configuration. Release remains blocked until
+the accepted manifest is anonymously pull-verified on a clean host.
 
 The image records its installed-package inventories at:
 

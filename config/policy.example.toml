@@ -1,7 +1,7 @@
 # Trusted local policy consumed by the CLI.
 # The CLI loads exactly this trusted file; it does not merge configuration from
-# the target project. The all-zero runner digest is an unreleased beta sentinel
-# and must be replaced by the tested GHCR digest before publishing v0.1.0b1.
+# the target project. The runner is selected by the immutable digest validated
+# for the v0.1.0b1 candidate; it must be anonymously pullable before release.
 version = 1
 
 [model]
@@ -89,7 +89,7 @@ decision = "deny"
 
 [sandbox]
 backend = "rootless_docker"
-image = "ghcr.io/aminobutyric/under-llm-governance-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+image = "ghcr.io/aminobutyric/under-llm-governance-runner@sha256:4aa06d33e71dd3254aef98d86b9182487fc46845b162539e9af29456712b2186"
 container_uid = 65532
 container_gid = 65532
 network = "none"

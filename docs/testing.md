@@ -1,6 +1,6 @@
 # Testing through the Phase 4 durable workflow
 
-This guide verifies every implemented user path through Phase 3. Run commands
+This guide verifies every implemented user path through Phase 4. Run commands
 from the repository root unless a section explicitly says they work anywhere.
 
 ## 1. Prerequisites
@@ -37,6 +37,10 @@ uv run --frozen ruff format --check .
 uv run --frozen ruff check .
 uv run --frozen mypy src
 uv run --frozen pytest
+uv export --frozen --no-dev --no-emit-project \
+  --output-file /tmp/ulg-runtime-requirements.txt
+uv run --frozen pip-audit \
+  --requirement /tmp/ulg-runtime-requirements.txt --disable-pip
 ```
 
 The normal pytest run skips live Docker tests unless explicitly enabled.
@@ -61,9 +65,9 @@ docker image inspect "$runner_ref" --format '{{json .RepoDigests}}'
 ```
 
 The reported repository digests must contain the exact `sandbox.image` value.
-The all-zero value in an unreleased candidate is a sentinel, not a runnable
-image; live acceptance starts only after it is replaced by the tested GHCR
-digest. Reviewing and changing that reference is a trusted-operator action.
+Release also requires proving that the same reference can be pulled from GHCR
+on a clean machine. Reviewing and changing that reference is a trusted-operator
+action.
 
 Run the adversarial acceptance suite:
 

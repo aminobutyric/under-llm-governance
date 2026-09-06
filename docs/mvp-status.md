@@ -135,7 +135,7 @@ presentation required for model-requested recipe execution in the coding loop.
 
 ## Phase 4: approvals and complete workflow
 
-Status: in progress.
+Status: implemented and security-accepted; beta publication remains pending.
 
 The scoped-grant contract and first interactive approval workflow are
 implemented:
@@ -184,23 +184,21 @@ implemented:
   outcomes, stale configuration, CLI resume, and explicit discard.
 
 The current gate passes the lockfile check, Ruff formatting and lint, strict
-mypy, and all 115 non-Docker automated tests. Four live rootless-Docker
-acceptance groups remain environment-gated.
+mypy, and all 125 non-Docker automated tests. All five rootless-Docker
+acceptance groups pass against the recorded digest-qualified candidate.
 
 The review and operations increment adds bounded verified `ulg diff`, strict
 redacted `ulg audit`, exact-target `ulg clean` with age/size preview and retained
 work protection, actionable task commands, and an audit-derived completion
-summary. Required next: execute the remaining adversarial acceptance and
-release-readiness matrix. The v0.1.0b1 foundation also centralizes version
-metadata, packages the trusted
-policy template, adds private `ulg init`, discovers policy by explicit
+summary. The v0.1.0b1 foundation also centralizes version metadata, packages the
+trusted policy template, adds private `ulg init`, discovers policy by explicit
 argument/environment/XDG precedence, and requires an immutable GHCR runner
-reference. Its temporary all-zero digest sentinel must be replaced with the
-tested published digest before release.
+reference. The accepted manifest is published and anonymously pull-tested from
+GHCR.
 
 ## MVP completion rule
 
-The project is not an MVP release until Phases 0–4 are implemented and every
-applicable adversarial acceptance test in `docs/security-model.md` proves both
-containment and useful audit evidence. Phase 5 network/dependency access remains
-post-MVP.
+The Phase 0–4 MVP implementation and its adversarial acceptance matrix are
+complete. This is not yet a published beta: the runner still requires a
+committed-tree rebuild, followed by the Milestone 4 release gates. Phase 5
+network/dependency access remains post-MVP.

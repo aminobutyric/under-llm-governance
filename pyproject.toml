@@ -29,6 +29,12 @@ dependencies = [
   "pydantic>=2.11,<3",
 ]
 
+[project.urls]
+Homepage = "https://github.com/aminobutyric/under-llm-governance"
+Documentation = "https://github.com/aminobutyric/under-llm-governance/tree/release/docs"
+Issues = "https://github.com/aminobutyric/under-llm-governance/issues"
+Source = "https://github.com/aminobutyric/under-llm-governance"
+
 [project.scripts]
 ulg = "ulg.cli:main"
 
@@ -36,6 +42,7 @@ ulg = "ulg.cli:main"
 dev = [
   "hypothesis>=6.135,<7",
   "mypy>=1.16,<2",
+  "pip-audit>=2.9,<3",
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
 ]

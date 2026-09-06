@@ -183,6 +183,45 @@ def test_denied_approval_does_not_execute_recipe(tmp_path: Path) -> None:
     assert "grant_issued" not in [event.event_type for event in audit.events]
 
 
+def test_replayed_recipe_action_is_rejected_audited_and_reprompted(
+    tmp_path: Path,
+) -> None:
+    task_id = uuid4()
+    replayed = RunTaskAction(
+        task_id=task_id,
+        rationale="model tries to reuse an approved action",
+        recipe_name="test",
+    )
+    complete = CompleteAction(task_id=task_id, rationale="done", summary="contained")
+    sandbox = _Sandbox()
+    config, tools, source = _coding_tools(tmp_path, task_id, sandbox)
+    decision = BaselinePolicy(run_settings=config.tools.run_task).evaluate(replayed)
+    grants = ScopedGrantStore()
+    grant = grants.issue_recipe(decision=decision, action=replayed, config=config)
+    grants.consume_recipe(grant.grant_id, action=replayed, config=config)
+    audit = MemoryAuditSink()
+    controller = ReadOnlyController(
+        model=FakeModel([replayed, complete]),
+        policy=BaselinePolicy(config.tools.apply_patch, config.tools.run_task),
+        tools=tools,
+        audit=audit,
+        settings=config.task,
+        config=config,
+        approval=_Approval(ApprovalResolution.DENY),
+        grants=grants,
+    )
+
+    report = controller.run(task_id=task_id, task="verify")
+
+    assert report.denied_actions == 1
+    assert sandbox.calls == []
+    assert (source / "old.txt").read_text() == "secret-looking source text\n"
+    rejected = [event for event in audit.events if event.event_type == "grant_rejected"]
+    assert len(rejected) == 1
+    assert rejected[0].reason_code == "grant_action_replayed"  # type: ignore[union-attr]
+    assert any(event.event_type == "approval_requested" for event in audit.events)
+
+
 def test_terminal_patch_prompt_excludes_model_prose_and_raw_patch() -> None:
     config = load_config(Path("config/policy.example.toml"))
     action = ApplyPatchAction(

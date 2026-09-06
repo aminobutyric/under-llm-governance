@@ -38,13 +38,13 @@ negative tests, documentation, and relevant acceptance evidence are complete.
 
 ## 4. MVP security acceptance
 
-- [ ] Map every adversarial case in `docs/security-model.md` to an automated test.
-- [ ] Assert both containment and useful audit evidence in every adversarial test.
-- [ ] Complete prompt-injection, misleading-approval, lifecycle-script, and Git-hook
+- [x] Map every adversarial case in `docs/security-model.md` to an automated test.
+- [x] Assert both containment and useful audit evidence in every adversarial test.
+- [x] Complete prompt-injection, misleading-approval, lifecycle-script, and Git-hook
       scenarios.
-- [ ] Rerun all live rootless-Docker acceptance groups on the release candidate.
-- [ ] Verify interruption and restart cannot repeat an effectful action.
-- [ ] Confirm no controller, model, or sandbox path can modify the original project.
+- [x] Rerun all live rootless-Docker acceptance groups on the release candidate.
+- [x] Verify interruption and restart cannot repeat an effectful action.
+- [x] Confirm no controller, model, or sandbox path can modify the original project.
 
 ## 5. Release readiness
 
@@ -52,5 +52,5 @@ negative tests, documentation, and relevant acceptance evidence are complete.
 - [ ] Add the dependency-security check required by the development plan to CI.
 - [x] Test installation and the quick start on clean Python 3.11 and 3.13 systems.
 - [ ] Document operator setup, state retention, cleanup, recovery, and limitations.
-- [ ] Record the runner image digest, inventories, and complete acceptance evidence.
-- [ ] Mark the MVP complete only after Phases 0-4 and all security gates pass.
+- [x] Record the runner image digest, inventories, and complete acceptance evidence.
+- [x] Mark the MVP complete only after Phases 0-4 and all security gates pass.

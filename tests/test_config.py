@@ -58,7 +58,9 @@ def test_run_task_policy_must_remain_ask_and_have_unique_recipe_names() -> None:
 
 def test_sandbox_image_and_resource_limits_are_strict() -> None:
     config = load_config(Path("config/policy.example.toml"))
-    assert config.sandbox.image_digest == f"sha256:{'0' * 64}"
+    assert config.sandbox.image_digest == (
+        "sha256:4aa06d33e71dd3254aef98d86b9182487fc46845b162539e9af29456712b2186"
+    )
 
     mutable_digest = config.model_dump()
     mutable_digest["sandbox"]["image"] = "ulg-runner:latest"

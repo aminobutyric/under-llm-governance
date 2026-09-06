@@ -17,25 +17,25 @@ an immutable GHCR runner. The beta collects no telemetry.
 - [x] Clean-install and smoke-test the wheel on Python 3.11 and 3.13.
 - [x] Document the installed quick start and runner-digest transition.
 
-The all-zero runner digest is deliberately an unreleased-candidate sentinel. It
-must be replaced in Milestone 3; no artifact containing it may be published.
+The trusted policy records the published candidate digest, and an anonymous
+digest-qualified GHCR pull has passed.
 
 ## Milestone 2: security acceptance
 
-- [ ] Map all 15 release security cases to automated tests.
-- [ ] Require both containment and useful audit evidence for every case.
-- [ ] Complete the missing prompt-injection, approval, lifecycle-script, and
+- [x] Map all 15 release security cases to automated tests.
+- [x] Require both containment and useful audit evidence for every case.
+- [x] Complete the missing prompt-injection, approval, lifecycle-script, and
       Git-hook scenarios.
-- [ ] Prove interruption and restart do not repeat effectful actions.
-- [ ] Confirm every workflow leaves the selected original project unchanged.
+- [x] Prove interruption and restart do not repeat effectful actions.
+- [x] Confirm every workflow leaves the selected original project unchanged.
 
 ## Milestone 3: immutable runner candidate
 
 - [ ] Build the Linux amd64 runner candidate from the release commit.
-- [ ] Publish the candidate to GHCR and record its repository digest.
-- [ ] Replace the all-zero policy sentinel with that exact digest.
-- [ ] Run all live rootless-Docker acceptance groups against the candidate.
-- [ ] Record installed-package inventories and acceptance evidence.
+- [x] Publish the candidate to GHCR and record its repository digest.
+- [x] Replace the policy placeholder with that exact candidate digest.
+- [x] Run all live rootless-Docker acceptance groups against the candidate.
+- [x] Record installed-package inventories and acceptance evidence.
 
 ## Milestone 4: publishable beta
 
@@ -49,6 +49,10 @@ must be replaced in Milestone 3; no artifact containing it may be published.
 
 ## Release stop conditions
 
-Do not publish if the runner digest is the all-zero sentinel, any required
+Do not publish if the configured runner is unavailable from GHCR, any required
 security case fails, the original-project integrity check fails, artifact
 metadata differs from `0.1.0b1`, or a clean supported-Python install fails.
+
+The runner is public and anonymously pullable by its configured digest. The
+remaining stop conditions are covered by the committed-tree and Milestone 4
+release gates.
