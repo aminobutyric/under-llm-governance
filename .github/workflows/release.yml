@@ -140,8 +140,41 @@ jobs:
         with:
           packages-dir: dist/
 
+  verify-pypi:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.13"
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install exact public PyPI release
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          environment="/tmp/ulg-public-${{ matrix.python-version }}"
+          uv venv --python "${{ matrix.python-version }}" "$environment"
+          installed=false
+          for attempt in {1..12}; do
+            if uv pip install --no-cache --python "$environment/bin/python" "under-llm-governance==$version"; then
+              installed=true
+              break
+            fi
+            echo "PyPI has not served the release yet (attempt $attempt/12)"
+            sleep 10
+          done
+          test "$installed" = true
+          test "$("$environment/bin/ulg" --version)" = "$version"
+          XDG_CONFIG_HOME=/tmp/ulg-public-config "$environment/bin/ulg" init
+          XDG_CONFIG_HOME=/tmp/ulg-public-config "$environment/bin/ulg" dry-run
+
   github-release:
-    needs: [build, attest, publish-pypi]
+    needs: [build, attest, publish-pypi, verify-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: write

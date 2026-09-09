@@ -35,9 +35,10 @@ to the GitHub release job; no long-lived PyPI token is used.
 4. Approve the protected `pypi` environment deployment, if configured.
 5. Confirm the release workflow verifies Python 3.11/3.13, inspects both
    artifacts, smoke-installs the wheel, attests provenance, publishes to PyPI,
-   and creates a GitHub prerelease with `SHA256SUMS`.
-6. On a clean public machine, install the exact PyPI version, run `ulg init`,
-   `ulg dry-run`, pull the configured runner by digest, and run
+   clean-installs that exact public PyPI version on both supported endpoint
+   Pythons, and creates a GitHub prerelease with `SHA256SUMS`.
+6. On a clean public machine, independently install the exact PyPI version, run
+   `ulg init`, `ulg dry-run`, pull the configured runner by digest, and run
    `ulg sandbox-preflight`.
 
 If any gate fails, leave the tag for diagnosis but do not manually upload a
