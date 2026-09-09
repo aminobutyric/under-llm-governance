@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report
+    url: https://github.com/aminobutyric/under-llm-governance/security/advisories/new
+    about: Report suspected vulnerabilities privately, not in a public issue.

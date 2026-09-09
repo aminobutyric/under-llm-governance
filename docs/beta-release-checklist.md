@@ -31,7 +31,7 @@ digest-qualified GHCR pull has passed.
 
 ## Milestone 3: immutable runner candidate
 
-- [ ] Build the Linux amd64 runner candidate from the release commit.
+- [x] Build the Linux amd64 runner candidate from the committed candidate tree.
 - [x] Publish the candidate to GHCR and record its repository digest.
 - [x] Replace the policy placeholder with that exact candidate digest.
 - [x] Run all live rootless-Docker acceptance groups against the candidate.
@@ -39,13 +39,18 @@ digest-qualified GHCR pull has passed.
 
 ## Milestone 4: publishable beta
 
-- [ ] Add the dependency-security release check to CI.
-- [ ] Add build, artifact inspection, and release workflows.
-- [ ] Document limitations, retention, recovery, upgrade, and issue reporting.
+- [x] Add the dependency-security release check to CI.
+- [x] Add build, artifact inspection, and release workflows.
+- [x] Document limitations, retention, recovery, upgrade, and issue reporting.
 - [ ] Configure trusted PyPI publishing and GitHub release permissions.
 - [ ] Build from the release tag, verify artifacts, publish PyPI and GitHub
       prereleases, and verify a fresh public install.
 - [ ] Publish the checksums and announce the beta support channel.
+
+The repository-side OIDC and least-privilege release permissions are ready.
+Trusted publishing still requires the one-time PyPI/GitHub environment setup in
+the [release procedure](releasing.md); publication items remain unchecked until
+the tag workflow and a clean public install succeed.
 
 ## Release stop conditions
 

@@ -1,0 +1,165 @@
+name: Release beta
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.13"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Verify release tag
+        run: test "$GITHUB_REF_NAME" = "v$(uv run --frozen ulg --version)"
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Run release checks
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy src
+          uv run pytest
+
+      - name: Export locked runtime dependencies
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv export --frozen --no-dev --no-emit-project
+          --output-file /tmp/ulg-runtime-requirements.txt
+
+      - name: Audit locked runtime dependencies
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --frozen pip-audit
+          --requirement /tmp/ulg-runtime-requirements.txt
+          --disable-pip
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.13"
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Inspect distributions
+        run: python scripts/verify_release.py --version "${GITHUB_REF_NAME#v}"
+
+      - name: Verify anonymous runner availability
+        run: |
+          runner_ref="$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("config/policy.example.toml").read_text())["sandbox"]["image"])')"
+          anonymous_config="$(mktemp -d)"
+          export DOCKER_CONFIG="$anonymous_config"
+          docker pull "$runner_ref"
+          docker image inspect "$runner_ref" --format '{{json .RepoDigests}}' | grep --fixed-strings -- "$runner_ref"
+
+      - name: Smoke-test wheel on supported Python versions
+        run: |
+          uv python install 3.11 3.13
+          for version in 3.11 3.13; do
+            environment="/tmp/ulg-release-$version"
+            uv venv --python "$version" "$environment"
+            uv pip install --python "$environment/bin/python" dist/*.whl
+            "$environment/bin/ulg" --version
+            XDG_CONFIG_HOME="/tmp/ulg-config-$version" "$environment/bin/ulg" init
+            XDG_CONFIG_HOME="/tmp/ulg-config-$version" "$environment/bin/ulg" dry-run
+          done
+
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  attest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: "dist/*"
+
+  publish-pypi:
+    needs: [build, attest]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/under-llm-governance
+    permissions:
+      id-token: write
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Publish to PyPI with trusted publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/
+
+  github-release:
+    needs: [build, attest, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum * | sort --key=2 > SHA256SUMS
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --verify-tag --prerelease --generate-notes
+          --title "Under LLM Governance ${GITHUB_REF_NAME}"
