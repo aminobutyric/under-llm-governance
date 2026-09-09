@@ -80,7 +80,7 @@ Phase 4 boundary.
 The public beta will install as a normal command-line tool:
 
 ```console
-uv tool install under-llm-governance==0.1.0b1
+uv tool install under-llm-governance==0.1.0b2
 ulg init
 ollama pull qwen3-coder:30b
 ulg dry-run
@@ -89,9 +89,8 @@ ulg sandbox-preflight
 
 `ulg init` creates a private policy at
 `$XDG_CONFIG_HOME/ulg/policy.toml` or `~/.config/ulg/policy.toml`. Use
-`ulg init --model MODEL` to select another installed Ollama model. The beta is
-not published yet; until it is, contributors can run the same workflow from a
-checkout:
+`ulg init --model MODEL` to select another installed Ollama model. Contributors
+can run the same workflow from a checkout:
 
 ```console
 uv sync --frozen

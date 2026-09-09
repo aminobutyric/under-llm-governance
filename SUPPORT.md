@@ -1,6 +1,6 @@
 # Beta support
 
-Use [GitHub Issues](https://github.com/aminobutyric/under-llm-governance/issues)
+Use [GitHub Issues](https://github.com/aminobutyric/warrant/issues)
 for beta bugs, installation failures, and feature requests. Before filing, try
 the latest beta and include:
 

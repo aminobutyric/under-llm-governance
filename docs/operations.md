@@ -17,7 +17,7 @@ telemetry.
 ## Install and initialize
 
 ```console
-uv tool install under-llm-governance==0.1.0b1
+uv tool install under-llm-governance==0.1.0b2
 ulg init
 ollama pull qwen3-coder:30b
 ulg dry-run

@@ -8,7 +8,7 @@ versions are supported only when a maintainer explicitly says so.
 ## Reporting a vulnerability
 
 Do not open a public issue for a suspected vulnerability. Use the repository's
-[private vulnerability report](https://github.com/aminobutyric/under-llm-governance/security/advisories/new)
+[private vulnerability report](https://github.com/aminobutyric/warrant/security/advisories/new)
 and include the affected version, operating system, reproduction steps, and
 security impact. Remove credentials, proprietary source, model prompts, audit
 records, and other sensitive data before attaching diagnostics.

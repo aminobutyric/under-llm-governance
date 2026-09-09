@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.0b1 - unreleased
+## 0.1.0b2 - 2026-09-09
+
+- Removed unrelated landing-site assets accidentally included in the
+  `0.1.0b1` source distribution; they were never present in the wheel.
+- Corrected project and support links after the repository moved to
+  `aminobutyric/warrant`.
+- Restricted source-distribution inputs and added a matching artifact allowlist
+  so unrelated top-level content fails the release gate.
+
+## 0.1.0b1 - 2026-09-09
 
 - Added disposable read-only inspection and reviewed patch generation through a
   local Ollama model.
