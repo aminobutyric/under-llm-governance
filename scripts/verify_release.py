@@ -17,6 +17,24 @@ WHEEL_NAME = "under_llm_governance"
 RUNNER_PATTERN = re.compile(
     r"^ghcr\.io/aminobutyric/under-llm-governance-runner@sha256:[0-9a-f]{64}$"
 )
+SDIST_ALLOWED_ROOTS = {
+    ".gitignore",
+    "CHANGELOG.md",
+    "LICENSE",
+    "PKG-INFO",
+    "README.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+    "config",
+    "docs",
+    "pyproject.toml",
+    "runner",
+    "scripts",
+    "src",
+    "testdata",
+    "tests",
+    "uv.lock",
+}
 
 
 def _safe_member(name: str) -> None:
@@ -90,6 +108,17 @@ def _verify_sdist(path: Path, expected_version: str) -> None:
                 )
         names = set(member_names)
         prefix = f"{WHEEL_NAME}-{expected_version}/"
+        archive_root = prefix.removesuffix("/")
+        for name in names:
+            if name == archive_root:
+                continue
+            if not name.startswith(prefix):
+                raise ValueError(f"source distribution member escapes root: {name!r}")
+            relative = PurePosixPath(name.removeprefix(prefix))
+            if not relative.parts or relative.parts[0] not in SDIST_ALLOWED_ROOTS:
+                raise ValueError(
+                    f"source distribution has an unexpected top-level entry: {name!r}"
+                )
         required = {
             f"{prefix}PKG-INFO",
             f"{prefix}LICENSE",

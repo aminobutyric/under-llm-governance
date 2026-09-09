@@ -1,12 +1,12 @@
 # v0.1 beta release checklist
 
-This checklist tracks the shortest path to the public `v0.1.0b1` beta. The
+This checklist tracks the corrected public `v0.1.0b2` beta. The
 release remains Linux amd64, local Ollama, rootless Docker, PyPI plus GitHub, and
 an immutable GHCR runner. The beta collects no telemetry.
 
 ## Milestone 1: release foundation
 
-- [x] Use `0.1.0b1` as the single package and CLI version source.
+- [x] Use `0.1.0b2` as the single package and CLI version source.
 - [x] Package the trusted policy template in both wheel and source distribution.
 - [x] Add `ulg init` with the `qwen3-coder:30b` reference model.
 - [x] Create and replace user policy files privately and atomically.
@@ -42,21 +42,29 @@ digest-qualified GHCR pull has passed.
 - [x] Add the dependency-security release check to CI.
 - [x] Add build, artifact inspection, and release workflows.
 - [x] Document limitations, retention, recovery, upgrade, and issue reporting.
-- [ ] Configure trusted PyPI publishing and GitHub release permissions.
+- [x] Configure trusted PyPI publishing and GitHub release permissions.
 - [ ] Build from the release tag, verify artifacts, publish PyPI and GitHub
       prereleases, and verify a fresh public install.
 - [ ] Publish the checksums and announce the beta support channel.
 
-The repository-side OIDC and least-privilege release permissions are ready.
-Trusted publishing still requires the one-time PyPI/GitHub environment setup in
-the [release procedure](releasing.md); publication items remain unchecked until
-the tag workflow and a clean public install succeed.
+The repository-side OIDC and least-privilege release permissions are ready, and
+the `0.1.0b1` upload confirmed the trusted-publisher configuration. Publication
+items remain unchecked until the corrected tag workflow and clean public
+install succeed. See the [release procedure](releasing.md).
+
+`0.1.0b1` reached PyPI, but its source distribution included an unrelated
+`site/` directory because the release tag followed a misplaced landing-site
+merge. The wheel did not contain those files. The GitHub prerelease step also
+failed before publication because its job had no checkout or explicit
+repository context. `0.1.0b2` removes the unrelated directory, constrains and
+verifies source-distribution roots, supplies explicit `GH_REPO` context, and is
+the supported completion target.
 
 ## Release stop conditions
 
 Do not publish if the configured runner is unavailable from GHCR, any required
 security case fails, the original-project integrity check fails, artifact
-metadata differs from `0.1.0b1`, or a clean supported-Python install fails.
+metadata differs from `0.1.0b2`, or a clean supported-Python install fails.
 
 The runner is public and anonymously pullable by its configured digest. The
 remaining stop conditions are covered by the committed-tree and Milestone 4

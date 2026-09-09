@@ -30,10 +30,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aminobutyric/under-llm-governance"
-Documentation = "https://github.com/aminobutyric/under-llm-governance/tree/release/docs"
-Issues = "https://github.com/aminobutyric/under-llm-governance/issues"
-Source = "https://github.com/aminobutyric/under-llm-governance"
+Homepage = "https://github.com/aminobutyric/warrant"
+Documentation = "https://github.com/aminobutyric/warrant/tree/release/docs"
+Issues = "https://github.com/aminobutyric/warrant/issues"
+Source = "https://github.com/aminobutyric/warrant"
 
 [project.scripts]
 ulg = "ulg.cli:main"
@@ -52,6 +52,25 @@ packages = ["src/ulg"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "config/policy.example.toml" = "ulg/resources/policy.toml"
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+  ".gitignore",
+  "CHANGELOG.md",
+  "LICENSE",
+  "README.md",
+  "SECURITY.md",
+  "SUPPORT.md",
+  "config",
+  "docs",
+  "pyproject.toml",
+  "runner",
+  "scripts",
+  "src",
+  "testdata",
+  "tests",
+  "uv.lock",
+]
 
 [tool.hatch.version]
 path = "src/ulg/__init__.py"

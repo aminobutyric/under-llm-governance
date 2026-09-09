@@ -10,7 +10,7 @@ Create a PyPI trusted publisher with these exact values:
 
 - PyPI project: `under-llm-governance`
 - GitHub owner: `aminobutyric`
-- Repository: `under-llm-governance`
+- Repository: `warrant`
 - Workflow: `release.yml`
 - Environment: `pypi`
 
@@ -28,8 +28,8 @@ to the GitHub release job; no long-lived PyPI token is used.
 3. Create an annotated tag from the exact `release` commit and push it:
 
    ```console
-   git tag -a v0.1.0b1 -m "Under LLM Governance v0.1.0b1"
-   git push origin v0.1.0b1
+   git tag -a v0.1.0b2 -m "Under LLM Governance v0.1.0b2"
+   git push origin v0.1.0b2
    ```
 
 4. Approve the protected `pypi` environment deployment, if configured.
@@ -44,3 +44,12 @@ to the GitHub release job; no long-lived PyPI token is used.
 If any gate fails, leave the tag for diagnosis but do not manually upload a
 different artifact under the same version. Fix the source, increment the beta
 version, and release a new tag.
+
+## `0.1.0b1` recovery
+
+Do not delete or move `v0.1.0b1`, and do not rerun its failed release workflow:
+PyPI already published artifacts from that immutable tag. After `0.1.0b2` is
+public and its complete workflow succeeds, yank `0.1.0b1` on PyPI with the
+reason `Source distribution included unrelated site assets; use 0.1.0b2`.
+Yanking preserves the audit record and exact-version reproducibility while
+directing normal installers to the corrected beta.
