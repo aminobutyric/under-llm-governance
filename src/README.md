@@ -1,6 +1,6 @@
 # Python source layout
 
-Phase 0 establishes the `src/ulg` package with these boundaries:
+The `src/ulg` package uses these trust boundaries:
 
 | Package | Responsibility |
 |---|---|
@@ -12,7 +12,8 @@ Phase 0 establishes the `src/ulg` package with these boundaries:
 | `tools` | Narrow filesystem, patch, diff, and recipe operations |
 | `workspace` | Exclusions, copies, generations, and patch export |
 | `sandbox` | Rootless, resource-limited offline execution |
-| `audit` | Audit-safe events, pre-write redaction, and JSONL sink |
+| `audit` | Audit-safe events, JSONL sink, and strict redacted lifecycle reader |
+| `tasks` | Crash-consistent lifecycle, effect journal, and safe cleanup metadata |
 | `config` | Strict TOML parsing and layered restrictions |
 
 Task code never runs in the controller process. `policy` does not depend on a
@@ -26,6 +27,8 @@ sandbox preflight, and direct trusted-recipe acceptance. Model-triggered
 recipe execution now crosses normalized terminal approval, durable scoped grant
 consumption, at-most-once effect scheduling, sandbox execution, and allowlisted
 audit events. Atomic task state, verified generation recovery, restart-safe
-`resume`, explicit `discard`, and legacy recovery export are implemented. The
-complete review/operations CLI and audit-derived final report remain Phase 4
-work.
+`resume`, explicit `discard`, and legacy recovery export are implemented.
+Controller-owned `diff`, `audit`, and exact-target `clean` commands provide
+bounded review, redacted lifecycle summaries, age/size previews, and protected
+retained-work deletion. Successful coding output includes both the separate
+model summary and an audit-derived execution summary.

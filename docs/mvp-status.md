@@ -104,8 +104,9 @@ Status: complete.
 - `ulg sandbox-preflight` addresses only the current user's standard rootless
   Unix socket and fails closed unless the socket is user-owned, Docker reports
   rootless mode, and cgroup v2 uses the systemd driver.
-- The trusted runner tag is checked against a pinned image ID and execution uses
-  that digest with `--pull never`. The image has a digest-pinned Python base,
+- The trusted runner is configured as an exact digest-qualified GHCR reference;
+  execution uses that same reference with `--pull never` and verifies it appears
+  in Docker's repository digests. The image has a digest-pinned Python base,
   runs as UID/GID 65532, and includes Python/pytest/Ruff, Go, and Node. Exact
   Debian and Python inventories are embedded in the image.
 - `ulg sandbox-run` copies a verified disposable generation through a read-only
@@ -134,7 +135,7 @@ presentation required for model-requested recipe execution in the coding loop.
 
 ## Phase 4: approvals and complete workflow
 
-Status: in progress.
+Status: implemented and security-accepted; beta publication remains pending.
 
 The scoped-grant contract and first interactive approval workflow are
 implemented:
@@ -182,17 +183,22 @@ implemented:
   published-generation recovery, durable grant replay rejection, unknown sandbox
   outcomes, stale configuration, CLI resume, and explicit discard.
 
-The Phase 4 durability gate passes the lockfile check, Ruff formatting and lint,
-strict mypy, and all 103 non-Docker automated tests. Four live rootless-Docker
-acceptance groups remain environment-gated.
+The current gate passes the lockfile check, Ruff formatting and lint, strict
+mypy, and all 125 non-Docker automated tests. All five rootless-Docker
+acceptance groups pass against the recorded digest-qualified candidate.
 
-Required next: review and operations UX (`ulg diff`, `ulg audit`, and `ulg clean`)
-plus a complete audit-derived final report. The remaining adversarial acceptance
-matrix follows that increment.
+The review and operations increment adds bounded verified `ulg diff`, strict
+redacted `ulg audit`, exact-target `ulg clean` with age/size preview and retained
+work protection, actionable task commands, and an audit-derived completion
+summary. The v0.1.0b1 foundation also centralizes version metadata, packages the
+trusted policy template, adds private `ulg init`, discovers policy by explicit
+argument/environment/XDG precedence, and requires an immutable GHCR runner
+reference. The accepted manifest is published and anonymously pull-tested from
+GHCR.
 
 ## MVP completion rule
 
-The project is not an MVP release until Phases 0–4 are implemented and every
-applicable adversarial acceptance test in `docs/security-model.md` proves both
-containment and useful audit evidence. Phase 5 network/dependency access remains
-post-MVP.
+The Phase 0–4 MVP implementation and its adversarial acceptance matrix are
+complete. This is not yet a published beta: the runner still requires a
+committed-tree rebuild, followed by the Milestone 4 release gates. Phase 5
+network/dependency access remains post-MVP.

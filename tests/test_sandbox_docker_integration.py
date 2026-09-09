@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import pytest
 
+from ulg.audit import MemoryAuditSink, SandboxFinishedEvent
 from ulg.config import load_config
 from ulg.config.models import RecipeSettings, SandboxSettings
-from ulg.sandbox import RootlessDockerRunner
+from ulg.sandbox import RootlessDockerPreflight, RootlessDockerRunner, SandboxResult
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("ULG_RUN_DOCKER_TESTS") != "1",
@@ -39,9 +42,10 @@ def test_python_go_and_javascript_checks_run_offline(tmp_path: Path) -> None:
         }
     )
 
-    assert runner.run(recipe_name="python", workspace=tmp_path).ok
-    assert runner.run(recipe_name="go", workspace=tmp_path).ok
-    assert runner.run(recipe_name="javascript", workspace=tmp_path).ok
+    for recipe in ("python", "go", "javascript"):
+        result = runner.run(recipe_name=recipe, workspace=tmp_path)
+        assert result.ok
+        _assert_auditable(result)
 
 
 def test_network_host_authority_and_privilege_escalation_are_absent(
@@ -49,7 +53,7 @@ def test_network_host_authority_and_privilege_escalation_are_absent(
 ) -> None:
     _write(
         tmp_path / "containment.py",
-        "import os, pathlib, socket\n"
+        "import os, pathlib, shutil, socket\n"
         "assert os.getuid() != 0\n"
         "status = pathlib.Path('/proc/self/status').read_text()\n"
         "assert 'CapEff:\\t0000000000000000' in status\n"
@@ -62,6 +66,13 @@ def test_network_host_authority_and_privilege_escalation_are_absent(
         "assert pathlib.Path('/sys/fs/cgroup/pids.max').read_text().strip() == '128'\n"
         "cpu_quota = pathlib.Path('/sys/fs/cgroup/cpu.max').read_text().split()[0]\n"
         "assert cpu_quota != 'max'\n"
+        "assert shutil.which('curl') is None\n"
+        "try:\n"
+        "    socket.getaddrinfo('example.com', 443)\n"
+        "except socket.gaierror:\n"
+        "    pass\n"
+        "else:\n"
+        "    raise AssertionError('DNS reachable')\n"
         "sock = socket.socket(); sock.settimeout(0.2)\n"
         "try:\n"
         "    sock.connect(('127.0.0.1', 11434))\n"
@@ -82,6 +93,7 @@ def test_network_host_authority_and_privilege_escalation_are_absent(
     result = runner.run(recipe_name="containment", workspace=tmp_path)
 
     assert result.ok, result.output
+    _assert_auditable(result)
 
 
 def test_timeout_output_and_workspace_disk_are_bounded(tmp_path: Path) -> None:
@@ -120,11 +132,16 @@ def test_timeout_output_and_workspace_disk_are_bounded(tmp_path: Path) -> None:
     assert flood.output_truncated and flood.error_code == "output_limit"
     assert flood.output_bytes <= 65_536
     assert disk.ok and "bounded" in disk.output
+    _assert_auditable(timeout)
+    _assert_auditable(flood)
+    _assert_auditable(disk)
 
 
 def test_process_memory_environment_and_input_are_contained(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    container_uuid = UUID("11111111-1111-1111-1111-111111111111")
+    monkeypatch.setattr("ulg.sandbox.docker.uuid4", lambda: container_uuid)
     _write(tmp_path / "original.txt", "unchanged\n")
     _write(
         tmp_path / "fork.py",
@@ -137,6 +154,12 @@ def test_process_memory_environment_and_input_are_contained(
         "    print('pids-bounded')\n"
         "finally:\n"
         "    for child in children: child.kill()\n",
+    )
+    _write(
+        tmp_path / "detached.py",
+        "import subprocess\n"
+        "subprocess.Popen(['sleep', '30'], start_new_session=True)\n"
+        "print('detached-child-started')\n",
     )
     _write(
         tmp_path / "memory.py",
@@ -158,6 +181,7 @@ def test_process_memory_environment_and_input_are_contained(
     runner = _runner(
         {
             "fork": RecipeSettings(argv=("python", "fork.py")),
+            "detached": RecipeSettings(argv=("python", "detached.py")),
             "memory": RecipeSettings(argv=("python", "memory.py")),
             "input": RecipeSettings(argv=("python", "input.py")),
         },
@@ -169,13 +193,57 @@ def test_process_memory_environment_and_input_are_contained(
     )
 
     fork = runner.run(recipe_name="fork", workspace=tmp_path)
+    detached = runner.run(recipe_name="detached", workspace=tmp_path)
+    endpoint = RootlessDockerPreflight().check().endpoint
+    detached_container = subprocess.run(
+        (
+            "/usr/bin/docker",
+            "--host",
+            endpoint,
+            "container",
+            "inspect",
+            f"ulg-{container_uuid.hex}",
+        ),
+        check=False,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=5,
+    )
     memory = runner.run(recipe_name="memory", workspace=tmp_path)
     contained_input = runner.run(recipe_name="input", workspace=tmp_path)
 
     assert fork.ok and "pids-bounded" in fork.output
+    assert detached.ok and "detached-child-started" in detached.output
+    assert detached_container.returncode != 0
     assert not memory.ok and memory.exit_code not in {None, 0}
     assert contained_input.ok and "input-read-only" in contained_input.output
     assert (tmp_path / "original.txt").read_text() == "unchanged\n"
+    for result in (fork, detached, memory, contained_input):
+        _assert_auditable(result)
+
+
+def test_git_hooks_and_package_lifecycle_scripts_are_not_implicitly_executed(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path / "test_safe.py", "def test_safe(): assert True\n")
+    _write(
+        tmp_path / "package.json",
+        '{"scripts":{"preinstall":"touch /input/lifecycle-ran"}}\n',
+    )
+    _write(
+        tmp_path / ".git" / "hooks" / "pre-commit",
+        "#!/bin/sh\ntouch /input/git-hook-ran\n",
+    )
+    (tmp_path / ".git" / "hooks" / "pre-commit").chmod(0o755)
+    _seal(tmp_path)
+    runner = _runner({"test": RecipeSettings(argv=("python", "-m", "pytest", "-q"))})
+
+    result = runner.run(recipe_name="test", workspace=tmp_path)
+
+    assert result.ok, result.output
+    assert not (tmp_path / "lifecycle-ran").exists()
+    assert not (tmp_path / "git-hook-ran").exists()
+    _assert_auditable(result)
 
 
 def _runner(
@@ -188,6 +256,7 @@ def _runner(
 
 
 def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
 
 
@@ -195,3 +264,27 @@ def _seal(root: Path) -> None:
     for path in root.rglob("*"):
         path.chmod(0o555 if path.is_dir() or os.access(path, os.X_OK) else 0o444)
     root.chmod(0o555)
+
+
+def _assert_auditable(result: SandboxResult) -> None:
+    audit = MemoryAuditSink()
+    audit.append(
+        SandboxFinishedEvent(
+            task_id=uuid4(),
+            recipe_name=result.recipe_name,
+            recipe_digest=result.recipe_digest,
+            image_digest=result.image_digest,
+            sandbox_profile_digest=result.sandbox_profile_digest,
+            ok=result.ok,
+            error_code=result.error_code,
+            exit_code=result.exit_code,
+            timed_out=result.timed_out,
+            cancelled=result.cancelled,
+            duration_ms=result.duration_ms,
+            output_bytes=result.output_bytes,
+            output_truncated=result.output_truncated,
+        )
+    )
+    event = audit.events[0]
+    assert event.event_type == "sandbox_finished"
+    assert "output" not in event.model_dump()

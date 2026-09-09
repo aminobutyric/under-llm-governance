@@ -161,11 +161,13 @@ class ToolsSettings(StrictModel):
 class SandboxSettings(StrictModel):
     backend: Literal["rootless_docker"]
     image: str = Field(
-        min_length=1,
+        min_length=81,
         max_length=255,
-        pattern=r"^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]+)?$",
+        pattern=(
+            r"^[a-z0-9][a-z0-9._:/-]*[a-z0-9]"
+            r"@sha256:[0-9a-f]{64}$"
+        ),
     )
-    image_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     container_uid: Annotated[int, Field(gt=0, lt=2_147_483_648)]
     container_gid: Annotated[int, Field(gt=0, lt=2_147_483_648)]
     network: Literal["none"]
@@ -179,6 +181,10 @@ class SandboxSettings(StrictModel):
     max_combined_output_bytes: Annotated[int, Field(gt=0, le=1_048_576)]
     tmpfs_bytes: Annotated[int, Field(gt=0, le=1_073_741_824)]
     workspace_tmpfs_bytes: Annotated[int, Field(gt=0, le=2_147_483_648)]
+
+    @property
+    def image_digest(self) -> str:
+        return self.image.rsplit("@", maxsplit=1)[1]
 
     @model_validator(mode="after")
     def enforce_resource_invariants(self) -> SandboxSettings:

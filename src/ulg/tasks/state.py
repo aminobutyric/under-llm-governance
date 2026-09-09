@@ -231,6 +231,53 @@ class TaskStore:
         path.unlink()
         self._fsync_root()
 
+    def delete_state(self, task_id: UUID, *, expected_revision: int) -> None:
+        current = self.load(task_id)
+        if current.revision != expected_revision:
+            raise TaskStateError("task state revision changed concurrently")
+        path = self._state_path(task_id)
+        try:
+            metadata = path.lstat()
+        except OSError as error:
+            raise TaskStateError("task state cannot be removed safely") from error
+        if not stat.S_ISREG(metadata.st_mode) or path.is_symlink():
+            raise TaskStateError("task state path is unsafe")
+        try:
+            path.unlink()
+            self._fsync_root()
+        except OSError as error:
+            raise TaskStateError("task state cannot be removed safely") from error
+
+    def delete_idle_lock(self, task_id: UUID) -> None:
+        """Remove a lock inode only when no process currently owns it."""
+
+        path = self._lock_path(task_id)
+        try:
+            file_fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            raise TaskStateError("task lease cannot be removed safely") from error
+        try:
+            try:
+                fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise TaskBusyError("task is active during cleanup") from error
+            opened = os.fstat(file_fd)
+            current = path.lstat()
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or path.is_symlink()
+                or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise TaskStateError("task lease path changed during cleanup")
+            path.unlink()
+            self._fsync_root()
+        except OSError as error:
+            raise TaskStateError("task lease cannot be removed safely") from error
+        finally:
+            os.close(file_fd)
+
     @contextmanager
     def lease(self, task_id: UUID) -> Iterator[TaskSession]:
         self._prepare_root()

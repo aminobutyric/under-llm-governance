@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from pathlib import Path
+from subprocess import CompletedProcess
 from types import TracebackType
 from typing import Self
 
@@ -39,7 +40,7 @@ def test_runner_command_has_fixed_least_privilege_profile(tmp_path: Path) -> Non
     assert "--volume" not in command
     assert "/var/run/docker.sock" not in " ".join(command)
     assert command[-4:] == ("python", "-m", "pytest", "-q")
-    assert command[-5] == config.sandbox.image_digest
+    assert command[-5] == config.sandbox.image
 
 
 def test_runner_rejects_unknown_recipe_and_unsafe_mount_path(tmp_path: Path) -> None:
@@ -61,6 +62,38 @@ def test_recipe_and_profile_digests_are_deterministic() -> None:
     second = RootlessDockerRunner(config.sandbox, config.recipes)
 
     assert first._profile_payload() == second._profile_payload()
+
+
+def test_runner_verifies_exact_registry_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config(Path("config/policy.example.toml"))
+    runner = RootlessDockerRunner(config.sandbox, config.recipes)
+
+    def inspect(command: object, **kwargs: object) -> CompletedProcess[bytes]:
+        del command, kwargs
+        return CompletedProcess(
+            args=[], returncode=0, stdout=f'["{config.sandbox.image}"]'.encode()
+        )
+
+    monkeypatch.setattr("ulg.sandbox.docker.subprocess.run", inspect)
+    runner._verify_image("unix:///run/user/1001/docker.sock")
+
+
+@pytest.mark.parametrize("stdout", [b"not-json", b"[]"])
+def test_runner_rejects_unverified_registry_digest(
+    stdout: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_config(Path("config/policy.example.toml"))
+    runner = RootlessDockerRunner(config.sandbox, config.recipes)
+
+    monkeypatch.setattr(
+        "ulg.sandbox.docker.subprocess.run",
+        lambda *args, **kwargs: CompletedProcess(args=[], returncode=0, stdout=stdout),
+    )
+
+    with pytest.raises(SandboxExecutionError, match="digest does not match"):
+        runner._verify_image("unix:///run/user/1001/docker.sock")
 
 
 def test_keyboard_interrupt_returns_cancelled_result(

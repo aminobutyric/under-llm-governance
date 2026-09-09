@@ -1,6 +1,7 @@
 # Trusted local policy consumed by the CLI.
-# Through Phase 3, the CLI loads exactly this selected file; it does not merge
-# configuration from the target project.
+# The CLI loads exactly this trusted file; it does not merge configuration from
+# the target project. The runner is selected by the immutable digest validated
+# for the v0.1.0b1 candidate; it must be anonymously pullable before release.
 version = 1
 
 [model]
@@ -88,8 +89,7 @@ decision = "deny"
 
 [sandbox]
 backend = "rootless_docker"
-image = "ulg-runner:phase3"
-image_digest = "sha256:151dc0f333af6ab697f300adf95b6d2f16a66555b1d8ec20d3c09c3c383b9bdb"
+image = "ghcr.io/aminobutyric/under-llm-governance-runner@sha256:4aa06d33e71dd3254aef98d86b9182487fc46845b162539e9af29456712b2186"
 container_uid = 65532
 container_gid = 65532
 network = "none"

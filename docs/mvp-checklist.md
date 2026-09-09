@@ -28,29 +28,29 @@ negative tests, documentation, and relevant acceptance evidence are complete.
 
 ## 3. Review and operations UX
 
-- [ ] Add `ulg diff TASK_ID` for bounded pending-change review.
-- [ ] Add `ulg audit TASK_ID` with a concise, redacted lifecycle view.
-- [ ] Add `ulg clean` with explicit targets, age/size reporting, and safe confirmation.
-- [ ] Make `ulg run` print the task identifier and actionable next commands.
-- [ ] Produce a final report separating proposals, approvals, executions, verified
+- [x] Add `ulg diff TASK_ID` for bounded pending-change review.
+- [x] Add `ulg audit TASK_ID` with a concise, redacted lifecycle view.
+- [x] Add `ulg clean` with explicit targets, age/size reporting, and safe confirmation.
+- [x] Make `ulg run` print the task identifier and actionable next commands.
+- [x] Produce a final report separating proposals, approvals, executions, verified
       checks, pending changes, failures, and model-authored summary text.
-- [ ] Improve errors for unavailable Ollama, Docker preflight failure, and expiry.
+- [x] Improve errors for unavailable Ollama, Docker preflight failure, and expiry.
 
 ## 4. MVP security acceptance
 
-- [ ] Map every adversarial case in `docs/security-model.md` to an automated test.
-- [ ] Assert both containment and useful audit evidence in every adversarial test.
-- [ ] Complete prompt-injection, misleading-approval, lifecycle-script, and Git-hook
+- [x] Map every adversarial case in `docs/security-model.md` to an automated test.
+- [x] Assert both containment and useful audit evidence in every adversarial test.
+- [x] Complete prompt-injection, misleading-approval, lifecycle-script, and Git-hook
       scenarios.
-- [ ] Rerun all live rootless-Docker acceptance groups on the release candidate.
-- [ ] Verify interruption and restart cannot repeat an effectful action.
-- [ ] Confirm no controller, model, or sandbox path can modify the original project.
+- [x] Rerun all live rootless-Docker acceptance groups on the release candidate.
+- [x] Verify interruption and restart cannot repeat an effectful action.
+- [x] Confirm no controller, model, or sandbox path can modify the original project.
 
 ## 5. Release readiness
 
 - [x] Refresh README and source-layout documentation for the approval increment.
 - [ ] Add the dependency-security check required by the development plan to CI.
-- [ ] Test installation and the quick start on clean Python 3.11 and 3.13 systems.
+- [x] Test installation and the quick start on clean Python 3.11 and 3.13 systems.
 - [ ] Document operator setup, state retention, cleanup, recovery, and limitations.
-- [ ] Record the runner image digest, inventories, and complete acceptance evidence.
-- [ ] Mark the MVP complete only after Phases 0-4 and all security gates pass.
+- [x] Record the runner image digest, inventories, and complete acceptance evidence.
+- [x] Mark the MVP complete only after Phases 0-4 and all security gates pass.

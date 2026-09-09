@@ -1,0 +1,34 @@
+name: Beta bug report
+description: Report a reproducible installation or runtime problem
+title: "[Bug]: "
+labels: [bug, beta]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include secrets, private source, prompts, or raw audit data.
+  - type: input
+    id: version
+    attributes:
+      label: ULG version
+      placeholder: Output of ulg --version
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Python, Linux distribution, installation method, and Docker details when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Sanitized minimal steps, expected behavior, actual behavior, and exit code.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Include sandbox-preflight JSON when relevant. Remove sensitive values.

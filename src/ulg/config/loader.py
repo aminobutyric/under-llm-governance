@@ -14,8 +14,14 @@ class ConfigError(ValueError):
 
 def load_config(path: Path) -> AppConfig:
     try:
-        with path.open("rb") as stream:
-            payload = tomllib.load(stream)
-        return AppConfig.model_validate(payload)
-    except (OSError, tomllib.TOMLDecodeError, ValidationError) as error:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise ConfigError(f"invalid policy configuration: {error}") from error
+    return parse_config(payload)
+
+
+def parse_config(payload: bytes) -> AppConfig:
+    try:
+        return AppConfig.model_validate(tomllib.loads(payload.decode("utf-8")))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError, ValidationError) as error:
         raise ConfigError(f"invalid policy configuration: {error}") from error

@@ -160,7 +160,6 @@ class ReadOnlyController:
                 config=self._config,
             )
         messages = [ChatMessage(role="user", content=task)]
-        self._check_context(messages)
         started = time.monotonic()
         tool_calls = 0
         denied_actions = 0
@@ -180,6 +179,7 @@ class ReadOnlyController:
             )
         )
         try:
+            self._check_context(messages)
             for turn in range(1, self._settings.max_turns + 1):
                 if time.monotonic() - started > self._settings.max_duration_seconds:
                     raise ControllerLimitError("task exceeded wall-clock limit")
@@ -518,6 +518,9 @@ class ReadOnlyController:
                     reason_code=error.reason_code,
                 )
             )
+            notify = getattr(self._approval, "notify_grant_rejected", None)
+            if callable(notify):
+                notify(error.reason_code)
             return False
         scope_type: Literal["action", "recipe"] = (
             "recipe" if isinstance(grant.scope, RecipeGrantScope) else "action"

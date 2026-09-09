@@ -1,7 +1,8 @@
 # CLI guide
 
-This guide covers the implemented Phase 0–3 commands. Phase 4 model-triggered
-approvals are not available yet.
+This guide covers the implemented Phase 0–4 commands, including scoped terminal
+approvals, durable resume, bounded review, redacted audit summaries, and explicit
+cleanup.
 
 ## Path rules
 
@@ -15,9 +16,28 @@ approvals are not available yet.
 - `--output` must name a new path outside the selected workspace and ULG task
   state.
 
-The default policy path is `config/policy.example.toml` relative to the current
-directory. For commands launched elsewhere, pass an absolute `--config` path or
-set `ULG_CONFIG` to one.
+Policy discovery is deterministic: explicit `--config`, then `ULG_CONFIG`, then
+`$XDG_CONFIG_HOME/ulg/policy.toml` (or `~/.config/ulg/policy.toml`). It never
+trusts a policy merely because it exists in the target project.
+
+## Initialize the user policy
+
+Create the default private policy and select the reference Ollama model:
+
+```console
+ulg init
+ollama pull qwen3-coder:30b
+```
+
+The new file is mode `0600`; its parent directory is private when newly created.
+Initialization refuses to overwrite anything by default and rejects symlink or
+non-regular destinations even with `--force`. To make an intentional atomic
+update or use another model:
+
+```console
+ulg init --force --model qwen3:8b
+ulg init --output /trusted/path/policy.toml
+```
 
 ## Prepare shell paths
 
@@ -26,11 +46,10 @@ moves:
 
 ```console
 export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
-export ULG_CONFIG="$ULG_REPO/config/policy.example.toml"
 ```
 
-`ULG_REPO` is a shell convenience used by the examples. `ULG_CONFIG` is read by
-the CLI and becomes the default for `--config`.
+`ULG_REPO` is a shell convenience used by the development examples. A custom
+policy can still be selected with `ULG_CONFIG` or `--config`.
 
 ## Run from the repository
 
@@ -52,22 +71,19 @@ unchanged. In this example, `--workspace .` means `/path/to/small-project`:
 cd /path/to/small-project
 uv run --project "$ULG_REPO" --frozen ulg inspect \
   --workspace . \
-  --config "$ULG_CONFIG" \
   --task "Explain this project and cite the files you read" \
-  --model qwen3:14b
+  --model qwen3-coder:30b
 ```
 
-Because `ULG_CONFIG` was exported above, the explicit `--config` option may be
-omitted. Keeping it in copied commands makes the trust source visible.
+The initialized XDG policy is used automatically.
 
 An absolute workspace works from any current directory too:
 
 ```console
 uv run --project "$ULG_REPO" --frozen ulg inspect \
   --workspace /absolute/path/to/small-project \
-  --config "$ULG_CONFIG" \
   --task "Explain this project and cite the files you read" \
-  --model qwen3:14b
+  --model qwen3-coder:30b
 ```
 
 ## Optional editable command installation
@@ -81,15 +97,14 @@ ulg --help
 ```
 
 The trusted policy is deliberately not inferred from an arbitrary target
-project. Continue to export `ULG_CONFIG` or pass `--config`:
+project. With `ulg init` complete, no configuration argument is needed:
 
 ```console
 cd /path/to/small-project
 ulg inspect \
   --workspace . \
-  --config "$ULG_CONFIG" \
   --task "Explain this project and cite the files you read" \
-  --model qwen3:14b
+  --model qwen3-coder:30b
 ```
 
 Re-run the editable install only if the environment is removed; source changes
@@ -99,9 +114,15 @@ are visible without reinstalling.
 
 | Command | Purpose | Needs Ollama | Needs rootless Docker |
 |---|---|---:|---:|
+| `ulg init` | Create a private trusted user policy | No | No |
 | `ulg dry-run` | Exercise contracts without filesystem or process effects | No | No |
 | `ulg inspect` | Inspect a disposable read-only snapshot | Yes | No |
 | `ulg run` | Edit disposable generations and export a patch | Yes | No |
+| `ulg resume` | Continue one retained durable task | Yes | Only for approved recipes |
+| `ulg diff` | Review one retained task's bounded verified diff | No | No |
+| `ulg audit` | Show one task's concise redacted lifecycle | No | No |
+| `ulg discard` | Destroy one retained workspace and its grants | No | No |
+| `ulg clean` | Delete exact task IDs after size/age preview | No | No |
 | `ulg sandbox-preflight` | Validate the current user's Docker daemon | No | Yes |
 | `ulg sandbox-run` | Run one trusted recipe in the offline sandbox | No | Yes |
 
@@ -121,8 +142,29 @@ uv run --project "$ULG_REPO" --frozen ulg sandbox-run --help
   failure.
 - `130`: cancellation by the user.
 
-## Current Phase 4 boundary
+## Durable review and cleanup
 
-`sandbox-run` is an explicit operator command. Although the typed `run_task`
-action and coding-tool bridge exist, Ollama is not offered that action until
-Phase 4 implements exact recipe grants and trusted approval presentation.
+`ulg run` prints the task ID as soon as durable state exists. If a task is
+retained, use the printed commands to inspect and continue it:
+
+```console
+ulg diff TASK_ID
+ulg audit TASK_ID
+ulg resume TASK_ID
+ulg discard TASK_ID
+```
+
+`diff` returns JSON containing the verified generation, total and returned byte
+counts, a truncation flag, and the bounded unified diff. `audit` validates each
+complete allowlisted event and returns counts plus at most 200 redacted timeline
+entries; raw model, patch, tool-output, and environment payloads are absent.
+
+Cleanup takes exact task identifiers and prints age and stored bytes before any
+deletion. It confirms interactively unless `--yes` is supplied. Retained tasks
+require the additional `--include-retained` acknowledgement. An optional age
+gate skips newer selected tasks:
+
+```console
+ulg clean TASK_ID --older-than-days 30 --yes
+ulg clean TASK_ID --include-retained --yes
+```

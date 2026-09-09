@@ -86,6 +86,23 @@ class TerminalApprovalService:
             return ApprovalResolution.APPROVE_RECIPE
         return ApprovalResolution.DENY
 
+    def notify_grant_rejected(self, reason_code: str) -> None:
+        messages = {
+            "grant_expired": "The previous grant expired; fresh approval is required.",
+            "grant_exhausted": (
+                "The previous grant reached its use limit; fresh approval is required."
+            ),
+            "grant_config_changed": (
+                "Trusted configuration changed; the previous grant was revoked."
+            ),
+        }
+        message = messages.get(
+            reason_code,
+            "The previous grant is no longer valid; fresh approval is required.",
+        )
+        self._output.write(f"\n{message}\n")
+        self._output.flush()
+
     def _render(self, request: ApprovalRequest) -> None:
         write = self._output.write
         write("\nApproval required\n")

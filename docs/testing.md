@@ -1,6 +1,6 @@
-# Testing through Phase 3
+# Testing through the Phase 4 durable workflow
 
-This guide verifies every implemented user path through Phase 3. Run commands
+This guide verifies every implemented user path through Phase 4. Run commands
 from the repository root unless a section explicitly says they work anywhere.
 
 ## 1. Prerequisites
@@ -14,9 +14,10 @@ Prepare reusable paths:
 
 ```console
 export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
-export ULG_CONFIG="$ULG_REPO/config/policy.example.toml"
 cd "$ULG_REPO"
 uv sync --frozen
+uv run --frozen ulg init
+export ULG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/ulg/policy.toml"
 ```
 
 Check Ollama models before choosing `--model`:
@@ -36,6 +37,10 @@ uv run --frozen ruff format --check .
 uv run --frozen ruff check .
 uv run --frozen mypy src
 uv run --frozen pytest
+uv export --frozen --no-dev --no-emit-project \
+  --output-file /tmp/ulg-runtime-requirements.txt
+uv run --frozen pip-audit \
+  --requirement /tmp/ulg-runtime-requirements.txt --disable-pip
 ```
 
 The normal pytest run skips live Docker tests unless explicitly enabled.
@@ -51,16 +56,18 @@ uv run --frozen ulg sandbox-preflight
 Expected fields include `"rootless":true`, `"cgroup_version":"2"`, and
 `"cgroup_driver":"systemd"`.
 
-If the runner image has not been built on this machine:
+Read and pull the exact digest-qualified runner from the initialized policy:
 
 ```console
-docker build --pull=false --tag ulg-runner:phase3 "$ULG_REPO/runner"
-docker image inspect ulg-runner:phase3 --format '{{.Id}}'
+runner_ref="$(python -c 'import tomllib,pathlib; print(tomllib.loads((pathlib.Path.home()/".config/ulg/policy.toml").read_text())["sandbox"]["image"])')"
+docker pull "$runner_ref"
+docker image inspect "$runner_ref" --format '{{json .RepoDigests}}'
 ```
 
-The reported image ID must exactly equal `sandbox.image_digest` in the trusted
-policy. A rebuild may produce a new ID; reviewing and changing that digest is a
-trusted-operator action.
+The reported repository digests must contain the exact `sandbox.image` value.
+Release also requires proving that the same reference can be pulled from GHCR
+on a clean machine. Reviewing and changing that reference is a trusted-operator
+action.
 
 Run the adversarial acceptance suite:
 
@@ -166,18 +173,19 @@ uv run --project "$ULG_REPO" --frozen ulg sandbox-run \
 Each result should have `"ok":true`, `"exit_code":0`, and non-empty recipe,
 image, and sandbox-profile digests.
 
-## 8. Audit and cleanup inspection
+## 8. Durable review and cleanup
 
 By default, durable audit files are stored under:
 
 `$XDG_STATE_HOME/ulg/audit` when `XDG_STATE_HOME` is set, otherwise
 `~/.local/state/ulg/audit`.
 
-List recent files and inspect one:
+Use the controller-owned views instead of opening internal state directly:
 
 ```console
-ls -lt "${XDG_STATE_HOME:-$HOME/.local/state}/ulg/audit" | head
-less "${XDG_STATE_HOME:-$HOME/.local/state}/ulg/audit/<audit-file>.jsonl"
+ulg diff TASK_ID
+ulg audit TASK_ID
+ulg clean TASK_ID --older-than-days 30 --yes
 ```
 
 Sandbox execution should record `task_started`, `sandbox_finished`,
@@ -188,8 +196,15 @@ values.
 The corresponding `workspaces` state directory should contain no retained task
 generation after completion.
 
-## 9. Phase boundary
+For a deliberately retained test task, cleanup requires explicit acknowledgement:
 
-Do not expect an Ollama-driven coding task to execute `run_task` yet. The direct
-operator command and isolated runner are complete; exact approval grants and
-model-facing recipe execution belong to Phase 4.
+```console
+ulg clean TASK_ID --include-retained --yes
+```
+
+## 9. Phase 4 approval boundary
+
+Ollama may request only recipe names allowlisted by trusted configuration. Every
+model-requested patch or recipe execution that evaluates to `ask` requires an
+exact action grant or a bounded recipe grant from the terminal approval service.
+Expiry, changed configuration, replay, and mismatched scope fail closed.

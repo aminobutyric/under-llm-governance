@@ -62,7 +62,7 @@ src/ulg/
   config/                    Strict TOML configuration loading
 tests/                       Unit, integration, and security suites
 runner/                      Digest-pinned multi-language sandbox image
-.github/workflows/ci.yml     Locked lint, type-check, and test workflow
+.github/workflows/           Locked CI and tag-driven release workflows
 config/                      Example trusted policy files
 docs/                        Architecture, security model, plans, and ADRs
 testdata/adversarial/        Inert injection, path, and resource fixtures
@@ -77,26 +77,40 @@ Phase 4 boundary.
 
 ## Quick start
 
+The public beta will install as a normal command-line tool:
+
+```console
+uv tool install under-llm-governance==0.1.0b1
+ulg init
+ollama pull qwen3-coder:30b
+ulg dry-run
+ulg sandbox-preflight
+```
+
+`ulg init` creates a private policy at
+`$XDG_CONFIG_HOME/ulg/policy.toml` or `~/.config/ulg/policy.toml`. Use
+`ulg init --model MODEL` to select another installed Ollama model. The beta is
+not published yet; until it is, contributors can run the same workflow from a
+checkout:
+
 ```console
 uv sync --frozen
+uv run --frozen ulg init
 uv run --frozen ulg dry-run
 uv run --frozen ulg sandbox-preflight
 uv run --frozen pytest
 ```
 
-These commands assume the repository root is the current directory. For a
-command that works from any directory, make both the ULG checkout and trusted
-policy explicit:
+These development commands assume the repository root is the current directory.
+For a command that works from any directory, make the ULG checkout explicit:
 
 ```console
 export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
-export ULG_CONFIG="$ULG_REPO/config/policy.example.toml"
 
 uv run --project "$ULG_REPO" --frozen ulg inspect \
   --workspace /absolute/path/to/small-project \
-  --config "$ULG_CONFIG" \
   --task "Explain this project and cite the files you read" \
-  --model qwen3:14b
+  --model qwen3-coder:30b
 ```
 
 See the [CLI guide](docs/cli.md) for path rules, optional editable installation,
@@ -105,19 +119,17 @@ all commands, and exit codes.
 ## Offline sandbox setup
 
 Phase 3 requires rootless Docker with cgroup v2 and the systemd cgroup driver.
-Build the trusted multi-language runner through that daemon, inspect its image
-ID, and place the exact value in `sandbox.image_digest` in your trusted policy:
+The release policy names the trusted GHCR runner by its immutable registry
+digest. Pull that exact reference and run preflight:
 
 ```console
-docker build --pull=false --tag ulg-runner:phase3 runner
-docker image inspect ulg-runner:phase3 --format '{{.Id}}'
+docker pull "$(python -c 'import tomllib,pathlib; print(tomllib.loads((pathlib.Path.home()/".config/ulg/policy.toml").read_text())["sandbox"]["image"])')"
 uv run --frozen ulg sandbox-preflight
 ```
 
-The example policy is pinned to the image produced during the Phase 3
-acceptance run. A later rebuild can have a different ID because Debian package
-repositories change; replacing the configured digest must be an explicit
-trusted-operator action.
+The checked-in template contains the exact tested candidate digest. That
+manifest is public in GHCR and has passed an anonymous digest-qualified pull.
+Replacing the configured reference remains an explicit trusted-operator action.
 
 Run the checked-in offline smoke projects without exposing their original
 directories to a writable mount:
@@ -181,6 +193,8 @@ last manifest-verified generation by default and prints its task identifier:
 
 ```console
 uv run ulg resume TASK_ID
+uv run ulg diff TASK_ID
+uv run ulg audit TASK_ID
 uv run ulg discard TASK_ID
 ```
 
@@ -197,6 +211,17 @@ generation, lifecycle phase, and bounded effect journal. Successful export and
 explicit discard destroy workspace generations and revoke stored grants; the
 small lifecycle record remains for later audit and cleanup commands.
 
+`ulg diff` verifies the retained generation and returns a byte-bounded review;
+`ulg audit` strictly parses the allowlisted event log into redacted counts and a
+bounded lifecycle timeline. Cleanup always requires exact task IDs, reports task
+age and stored bytes, and asks for confirmation. Resumable work is protected
+unless `--include-retained` is explicit:
+
+```console
+uv run ulg clean TASK_ID --older-than-days 30 --yes
+uv run ulg clean TASK_ID --include-retained --yes
+```
+
 Approval prompts are written to the terminal separately from the final JSON
 report. Patch prompts contain parsed file operations rather than raw model prose
 or patch content. Recipe prompts contain only trusted configuration, including
@@ -207,11 +232,18 @@ Invalid input and unavailable approval handling fail closed.
 
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security-model.md)
+- [v0.1 security acceptance matrix](docs/security-acceptance-matrix.md)
+- [v0.1.0b1 runner acceptance evidence](docs/release-evidence/v0.1.0b1-runner.md)
 - [Development plan](docs/development-plan.md)
 - [MVP implementation status](docs/mvp-status.md)
 - [MVP readiness checklist](docs/mvp-checklist.md)
+- [v0.1 beta release checklist](docs/beta-release-checklist.md)
+- [Beta operations guide](docs/operations.md)
+- [Release procedure](docs/releasing.md)
+- [Beta support](SUPPORT.md)
+- [Security reporting](SECURITY.md)
 - [CLI guide](docs/cli.md)
-- [Testing through Phase 3](docs/testing.md)
+- [Testing through Phase 4](docs/testing.md)
 - [Trust-boundary decision](docs/decisions/0001-trusted-controller.md)
 - [Python implementation baseline](docs/decisions/0002-python-baseline.md)
 - [Security mechanisms](docs/decisions/0003-security-mechanisms.md)

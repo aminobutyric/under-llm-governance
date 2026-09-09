@@ -101,7 +101,7 @@ class RootlessDockerRunner:
             "inspect",
             self._settings.image,
             "--format",
-            "{{.Id}}",
+            "{{json .RepoDigests}}",
         )
         try:
             completed = subprocess.run(
@@ -116,8 +116,15 @@ class RootlessDockerRunner:
             raise SandboxExecutionError(
                 "cannot inspect trusted runner image"
             ) from error
-        observed = completed.stdout.decode("ascii", errors="replace").strip()
-        if completed.returncode != 0 or observed != self._settings.image_digest:
+        try:
+            observed = json.loads(completed.stdout)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            observed = None
+        if (
+            completed.returncode != 0
+            or not isinstance(observed, list)
+            or self._settings.image not in observed
+        ):
             raise SandboxExecutionError("trusted runner image digest does not match")
 
     def _build_command(
@@ -202,7 +209,7 @@ class RootlessDockerRunner:
             "GOCACHE=/tmp/go-cache",
             "--env",
             "GOMODCACHE=/tmp/go-mod-cache",
-            self._settings.image_digest,
+            self._settings.image,
             *argv,
         )
 

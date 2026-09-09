@@ -4,9 +4,11 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 import sys
 from collections.abc import Sequence
-from contextlib import suppress
+from contextlib import ExitStack, suppress
+from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
@@ -15,14 +17,16 @@ from ulg import __version__
 from ulg.actions import ListFilesAction
 from ulg.approval import ScopedGrantStore, TerminalApprovalService, config_digest
 from ulg.audit import (
+    AuditReadError,
     JsonlAuditSink,
     MemoryAuditSink,
     PatchExportedEvent,
     SandboxFinishedEvent,
     TaskLifecycleEvent,
     WorkspaceDiscardedEvent,
+    read_audit_summary,
 )
-from ulg.config import ConfigError, load_config
+from ulg.config import ConfigError, load_config, parse_config
 from ulg.config.models import ModelSettings
 from ulg.controller import Controller, ControllerLimitError, ReadOnlyController
 from ulg.model import FakeModel, ModelProtocolError, OllamaModel
@@ -40,6 +44,8 @@ from ulg.tasks import (
     TaskState,
     TaskStateError,
     TaskStore,
+    inspect_cleanup_candidate,
+    remove_task_artifacts,
 )
 from ulg.tools import CodingTools, ReadOnlyTools
 from ulg.workspace import (
@@ -58,6 +64,9 @@ class _HelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
         return super()._get_help_string(action) or ""
 
 
+_REFERENCE_MODEL = "qwen3-coder:30b"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ulg",
@@ -69,6 +78,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init = subparsers.add_parser(
+        "init",
+        help="create a private trusted user policy from the packaged template",
+        formatter_class=_HelpFormatter,
+    )
+    init.add_argument(
+        "--model",
+        default=_REFERENCE_MODEL,
+        help="local Ollama model written into the trusted policy",
+    )
+    init.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="policy destination; defaults to the XDG user configuration path",
+    )
+    init.add_argument(
+        "--force",
+        action="store_true",
+        help="replace an existing regular policy file atomically",
+    )
 
     dry_run = subparsers.add_parser(
         "dry-run",
@@ -185,19 +216,56 @@ def build_parser() -> argparse.ArgumentParser:
     discard.add_argument("task_id", type=UUID)
     discard.add_argument("--config", type=Path, default=None)
     _add_state_argument(discard)
+
+    diff = subparsers.add_parser(
+        "diff",
+        help="review the bounded pending diff for a retained task",
+        formatter_class=_HelpFormatter,
+    )
+    diff.add_argument("task_id", type=UUID)
+    diff.add_argument("--config", type=Path, default=None)
+    _add_state_argument(diff)
+
+    audit = subparsers.add_parser(
+        "audit",
+        help="show a concise redacted lifecycle for a task",
+        formatter_class=_HelpFormatter,
+    )
+    audit.add_argument("task_id", type=UUID)
+    _add_state_argument(audit)
+
+    clean = subparsers.add_parser(
+        "clean",
+        help="delete explicitly selected durable task artifacts",
+        formatter_class=_HelpFormatter,
+    )
+    clean.add_argument("task_ids", nargs="+", type=UUID)
+    clean.add_argument(
+        "--older-than-days",
+        type=_nonnegative_int,
+        default=0,
+        help="skip selected tasks newer than this age; zero disables the filter",
+    )
+    clean.add_argument(
+        "--include-retained",
+        action="store_true",
+        help="allow deletion of resumable task workspaces",
+    )
+    clean.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm the reported exact targets without an interactive prompt",
+    )
+    _add_state_argument(clean)
     return parser
 
 
 def _add_config_argument(parser: argparse.ArgumentParser) -> None:
-    configured = os.environ.get("ULG_CONFIG")
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path(configured) if configured else Path("config/policy.example.toml"),
-        help=(
-            "trusted policy TOML; set ULG_CONFIG for an invocation-independent "
-            "default (a relative path is resolved from the current directory)"
-        ),
+        default=None,
+        help=("trusted policy TOML; otherwise use ULG_CONFIG or the XDG user policy"),
     )
 
 
@@ -213,8 +281,17 @@ def _add_state_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be zero or greater")
+    return parsed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "init":
+        return _initialize_config(args)
     if args.command == "dry-run":
         task_id = uuid4()
         action = ListFilesAction(
@@ -237,7 +314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             report = RootlessDockerPreflight().check()
         except DockerPreflightError as error:
-            print(f"error: {error}", file=sys.stderr)
+            print(f"error: {_describe_error(error)}", file=sys.stderr)
             return 2
         print(json.dumps(report.to_dict(), separators=(",", ":")))
         return 0
@@ -251,6 +328,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _resume_coding(args)
     if args.command == "discard":
         return _discard_coding(args)
+    if args.command == "diff":
+        return _review_coding_diff(args)
+    if args.command == "audit":
+        return _review_task_audit(args)
+    if args.command == "clean":
+        return _clean_tasks(args)
     raise AssertionError("argparse accepted an unknown command")
 
 
@@ -261,7 +344,7 @@ def _run_inspect(args: argparse.Namespace) -> int:
     model = None
     try:
         _require_state_outside_workspace(args.workspace, state_root)
-        config = load_config(args.config)
+        config = load_config(_resolve_config_path(args.config))
         manager = SnapshotWorkspaceManager(state_root / "workspaces", config.workspace)
         workspace = manager.create(source=args.workspace, task_id=task_id)
         audit_root = state_root / "audit"
@@ -306,7 +389,7 @@ def _run_inspect(args: argparse.Namespace) -> int:
         OSError,
         ValueError,
     ) as error:
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {_describe_error(error)}", file=sys.stderr)
         return 2
     finally:
         try:
@@ -327,7 +410,7 @@ def _run_sandbox_recipe(args: argparse.Namespace) -> int:
     cleanup_reason: Literal["completed", "failed", "cancelled"] = "failed"
     try:
         _require_state_outside_workspace(args.workspace, state_root)
-        config = load_config(args.config)
+        config = load_config(_resolve_config_path(args.config))
         if args.recipe not in config.tools.run_task.allowed_recipes:
             raise ValueError("recipe is not allowlisted by trusted configuration")
         manager = SnapshotWorkspaceManager(state_root / "workspaces", config.workspace)
@@ -384,7 +467,7 @@ def _run_sandbox_recipe(args: argparse.Namespace) -> int:
         OSError,
         ValueError,
     ) as error:
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {_describe_error(error)}", file=sys.stderr)
         return 2
     finally:
         if workspace is not None:
@@ -398,6 +481,130 @@ def _run_sandbox_recipe(args: argparse.Namespace) -> int:
                     )
                 )
             manager.discard(workspace)
+
+
+def _initialize_config(args: argparse.Namespace) -> int:
+    destination = (
+        args.output.absolute() if args.output is not None else _default_config_path()
+    )
+    try:
+        template = _read_policy_template()
+        marker = 'name = "qwen3-coder:30b"'
+        if template.count(marker) != 1:
+            raise ConfigError("packaged policy template has no unique model marker")
+        rendered = template.replace(
+            marker,
+            f"name = {json.dumps(args.model, ensure_ascii=True)}",
+            1,
+        ).encode("utf-8")
+        parse_config(rendered)
+        written = _write_private_config(destination, rendered, force=args.force)
+    except (ConfigError, OSError, ValueError) as error:
+        print(f"error: {_describe_error(error)}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "config": str(written),
+                "model": args.model,
+                "next_commands": {
+                    "ollama": f"ollama pull {args.model}",
+                    "preflight": "ulg sandbox-preflight",
+                    "inspect": (
+                        "ulg inspect --workspace /path/to/project "
+                        '--task "Explain this project"'
+                    ),
+                },
+            },
+            separators=(",", ":"),
+        )
+    )
+    return 0
+
+
+def _read_policy_template() -> str:
+    packaged = files("ulg").joinpath("resources", "policy.toml")
+    try:
+        return packaged.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        development_copy = (
+            Path(__file__).resolve().parents[2] / "config" / ("policy.example.toml")
+        )
+        try:
+            return development_copy.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ConfigError("packaged policy template is unavailable") from error
+
+
+def _write_private_config(destination: Path, payload: bytes, *, force: bool) -> Path:
+    if not destination.name or "\x00" in str(destination):
+        raise ConfigError("policy destination is invalid")
+    try:
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        parent = destination.parent.resolve(strict=True)
+        target = parent / destination.name
+        parent_metadata = parent.lstat()
+        if not stat.S_ISDIR(parent_metadata.st_mode):
+            raise ConfigError("policy parent is not a directory")
+        try:
+            existing = target.lstat()
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            if not force:
+                raise ConfigError("policy already exists; pass --force to replace it")
+            if not stat.S_ISREG(existing.st_mode) or target.is_symlink():
+                raise ConfigError("existing policy path is unsafe")
+        temporary = parent / f".{target.name}.{uuid4().hex}.tmp"
+        try:
+            file_fd = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            try:
+                view = memoryview(payload)
+                while view:
+                    written = os.write(file_fd, view)
+                    if written <= 0:
+                        raise ConfigError("policy write made no progress")
+                    view = view[written:]
+                os.fsync(file_fd)
+            finally:
+                os.close(file_fd)
+            os.replace(temporary, target)
+            directory_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return target
+    except ConfigError:
+        raise
+    except OSError as error:
+        raise ConfigError("policy cannot be written safely") from error
+
+
+def _default_config_path() -> Path:
+    configured = os.environ.get("XDG_CONFIG_HOME")
+    root = Path(configured) if configured else Path.home() / ".config"
+    return (root / "ulg" / "policy.toml").absolute()
+
+
+def _resolve_config_path(explicit: Path | None) -> Path:
+    candidate = explicit
+    if candidate is None:
+        configured = os.environ.get("ULG_CONFIG")
+        candidate = Path(configured) if configured else _default_config_path()
+    try:
+        return candidate.resolve(strict=True)
+    except OSError as error:
+        raise ConfigError(
+            f"trusted policy is unavailable at {candidate}; run `ulg init` or pass "
+            "--config"
+        ) from error
 
 
 def _default_state_root() -> Path:
@@ -433,7 +640,7 @@ def _run_coding(args: argparse.Namespace) -> int:
     persisted = False
     try:
         source_root = args.workspace.resolve(strict=True)
-        config_path = args.config.resolve(strict=True)
+        config_path = _resolve_config_path(args.config)
         output_path = args.output.resolve(strict=False)
         _require_state_outside_workspace(source_root, state_root)
         config = load_config(config_path)
@@ -464,8 +671,9 @@ def _run_coding(args: argparse.Namespace) -> int:
     ) as error:
         if workspace is not None and manager is not None and not persisted:
             manager.discard(workspace)
-        print(f"error: {error}", file=sys.stderr)
+        print(f"error: {_describe_error(error)}", file=sys.stderr)
         return 2
+    _print_task_commands(task_id, state_root)
     return _execute_saved_task(task_id=task_id, state_root=state_root, resumed=False)
 
 
@@ -634,6 +842,9 @@ def _execute_task_session(
             reason="completed",
             patch_exported=True,
         )
+        audit_summary = read_audit_summary(
+            audit_root / f"{state.task_id}.jsonl", task_id=state.task_id
+        )
         print(
             json.dumps(
                 {
@@ -642,6 +853,10 @@ def _execute_task_session(
                     "diff": diff,
                     "exported_patch": str(output_path),
                     "state": TaskPhase.DISCARD.value,
+                    "audit_summary": audit_summary.model_dump(mode="json"),
+                    "next_commands": {
+                        "audit": _command("audit", state.task_id, state_root),
+                    },
                 },
                 separators=(",", ":"),
             )
@@ -686,7 +901,11 @@ def _execute_task_session(
                 max_diff_bytes=config.tools.show_diff.max_output_bytes,
             )
         else:
-            _print_resume_hint(state.task_id, state_root, f"task retained: {error}")
+            _print_resume_hint(
+                state.task_id,
+                state_root,
+                f"task retained: {_describe_error(error)}",
+            )
         return 2
     finally:
         try:
@@ -714,12 +933,53 @@ def _error_code(error: BaseException) -> str:
     return "task_error"
 
 
+def _describe_error(error: BaseException) -> str:
+    if isinstance(error, ModelProtocolError):
+        if error.code in {"transport", "transport_error"}:
+            return (
+                "Ollama is unavailable at the configured local endpoint; start "
+                "Ollama and verify the selected model is installed"
+            )
+        if error.code == "timeout":
+            return (
+                "Ollama timed out; verify the local service and model, then resume "
+                "the retained task"
+            )
+        if error.code == "api_error":
+            return (
+                "Ollama rejected the request; verify the configured model name "
+                "and local service status"
+            )
+    if isinstance(error, DockerPreflightError):
+        return (
+            f"{error}; start the rootless user Docker service and run "
+            "`ulg sandbox-preflight` for details"
+        )
+    return str(error)
+
+
 def _print_resume_hint(task_id: UUID, state_root: Path, message: str) -> None:
     print(
         f"{message}\ntask_id: {task_id}\n"
-        f"resume: ulg resume {task_id} --state-dir {state_root}",
+        f"diff: {_command('diff', task_id, state_root)}\n"
+        f"audit: {_command('audit', task_id, state_root)}\n"
+        f"resume: {_command('resume', task_id, state_root)}\n"
+        f"discard: {_command('discard', task_id, state_root)}",
         file=sys.stderr,
     )
+
+
+def _print_task_commands(task_id: UUID, state_root: Path) -> None:
+    print(
+        f"task_id: {task_id}\n"
+        f"audit: {_command('audit', task_id, state_root)}\n"
+        f"diff if retained: {_command('diff', task_id, state_root)}",
+        file=sys.stderr,
+    )
+
+
+def _command(name: str, task_id: UUID, state_root: Path) -> str:
+    return f"ulg {name} {task_id} --state-dir {state_root}"
 
 
 def _recover_and_discard_task(
@@ -823,6 +1083,183 @@ def _discard_coding(args: argparse.Namespace) -> int:
             print(json.dumps({"task_id": str(state.task_id), "state": "discard"}))
             return 0
     except (ConfigError, SnapshotError, TaskStateError, OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+
+def _review_coding_diff(args: argparse.Namespace) -> int:
+    state_root = (args.state_dir or _default_state_root()).absolute()
+    store = TaskStore(state_root / "tasks")
+    try:
+        with store.lease(args.task_id) as session:
+            state = session.state
+            if state.phase is TaskPhase.DISCARD:
+                raise TaskStateError("task workspace was already discarded")
+            config_path = (
+                args.config.resolve(strict=True)
+                if args.config is not None
+                else state.config_path
+            )
+            config = load_config(config_path)
+            if config_digest(config) != state.config_digest:
+                raise TaskStateError(
+                    "trusted configuration changed since task creation"
+                )
+            manager = SnapshotWorkspaceManager(
+                state_root / "workspaces", config.workspace
+            )
+            workspace = manager.recover_latest(
+                task_id=state.task_id,
+                generation=state.generation,
+            )
+            tools = CodingTools(
+                workspace,
+                manager,
+                config.tools,
+                original_root=state.source_root.resolve(strict=True),
+            )
+            diff = tools.build_diff()
+            encoded = diff.encode("utf-8")
+            returned = _truncate_utf8(encoded, config.tools.show_diff.max_output_bytes)
+            print(
+                json.dumps(
+                    {
+                        "task_id": str(state.task_id),
+                        "phase": state.phase.value,
+                        "generation": workspace.generation,
+                        "bytes_total": len(encoded),
+                        "bytes_returned": len(returned),
+                        "truncated": len(returned) < len(encoded),
+                        "diff": returned.decode("utf-8"),
+                    },
+                    separators=(",", ":"),
+                )
+            )
+            return 0
+    except (
+        ConfigError,
+        PathSecurityError,
+        SnapshotError,
+        TaskStateError,
+        OSError,
+        ValueError,
+    ) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+
+def _review_task_audit(args: argparse.Namespace) -> int:
+    state_root = (args.state_dir or _default_state_root()).absolute()
+    try:
+        summary = read_audit_summary(
+            state_root / "audit" / f"{args.task_id}.jsonl",
+            task_id=args.task_id,
+        )
+    except AuditReadError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    print(summary.model_dump_json())
+    return 0
+
+
+def _truncate_utf8(payload: bytes, limit: int) -> bytes:
+    truncated = payload[:limit]
+    while truncated:
+        try:
+            truncated.decode("utf-8")
+        except UnicodeDecodeError:
+            truncated = truncated[:-1]
+            continue
+        break
+    return truncated
+
+
+def _clean_tasks(args: argparse.Namespace) -> int:
+    state_root = (args.state_dir or _default_state_root()).absolute()
+    store = TaskStore(state_root / "tasks")
+    if len(args.task_ids) != len(set(args.task_ids)):
+        print(
+            "error: clean task identifiers must not contain duplicates", file=sys.stderr
+        )
+        return 2
+    try:
+        candidates = tuple(
+            inspect_cleanup_candidate(state_root, store.load(task_id))
+            for task_id in args.task_ids
+        )
+        retained = tuple(candidate for candidate in candidates if candidate.retained)
+        if retained and not args.include_retained:
+            identifiers = ", ".join(str(candidate.task_id) for candidate in retained)
+            raise TaskStateError(
+                "selected tasks are retained and resumable; pass --include-retained "
+                f"to delete them: {identifiers}"
+            )
+        minimum_age = args.older_than_days * 86_400
+        eligible = tuple(
+            candidate
+            for candidate in candidates
+            if minimum_age == 0 or candidate.age_seconds >= minimum_age
+        )
+        preview = {
+            "selected": [candidate.model_dump(mode="json") for candidate in candidates],
+            "eligible_task_ids": [str(candidate.task_id) for candidate in eligible],
+            "bytes_total": sum(candidate.bytes_total for candidate in eligible),
+        }
+        print(json.dumps(preview, separators=(",", ":")), file=sys.stderr)
+        if not eligible:
+            print(
+                json.dumps(
+                    {"deleted_task_ids": [], "bytes_deleted": 0},
+                    separators=(",", ":"),
+                )
+            )
+            return 0
+        if not args.yes:
+            answer = input(f"Delete {len(eligible)} exact task target(s)? [y/N] ")
+            if answer.strip().lower() not in {"y", "yes"}:
+                print(
+                    json.dumps(
+                        {"deleted_task_ids": [], "bytes_deleted": 0},
+                        separators=(",", ":"),
+                    )
+                )
+                return 0
+
+        sessions: dict[UUID, TaskSession] = {}
+        with ExitStack() as stack:
+            for candidate in sorted(eligible, key=lambda item: item.task_id.hex):
+                session = stack.enter_context(store.lease(candidate.task_id))
+                if session.state.revision != candidate.revision:
+                    raise TaskStateError(
+                        f"task changed after cleanup preview: {candidate.task_id}"
+                    )
+                sessions[candidate.task_id] = session
+            for candidate in eligible:
+                session = sessions[candidate.task_id]
+                remove_task_artifacts(state_root, candidate.task_id)
+                store.delete_grants(candidate.task_id)
+                store.delete_state(
+                    candidate.task_id,
+                    expected_revision=session.state.revision,
+                )
+        for candidate in eligible:
+            with suppress(TaskStateError):
+                store.delete_idle_lock(candidate.task_id)
+        print(
+            json.dumps(
+                {
+                    "deleted_task_ids": [
+                        str(candidate.task_id) for candidate in eligible
+                    ],
+                    "bytes_deleted": sum(
+                        candidate.bytes_total for candidate in eligible
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    except (EOFError, OSError, TaskStateError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
