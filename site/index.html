@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Warrant — Only what is warranted. Keep the host.</title>
+  <meta name="description" content="A least-privilege coding agent for Ollama and beyond: typed actions, deterministic allow/ask/deny policy, disposable workspaces, and a real audit trail." />
+  <meta name="theme-color" content="#0b0c0b" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Warrant" />
+  <meta property="og:title" content="Warrant — Only what is warranted. Keep the host." />
+  <meta property="og:description" content="A least-privilege coding agent: typed actions a trusted controller can allow, ask, or deny. A prompt is not a permission boundary." />
+  <meta property="og:image" content="https://aminobutyric.github.io/warrant/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url" content="https://aminobutyric.github.io/warrant/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Warrant — Only what is warranted. Keep the host." />
+  <meta name="twitter:description" content="A least-privilege coding agent: typed actions a trusted controller can allow, ask, or deny." />
+  <meta name="twitter:image" content="https://aminobutyric.github.io/warrant/og-image.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="Warrant home">
+        <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect x="4.5" y="4.5" width="23" height="23" rx="3" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="11" y="11" width="10" height="10" rx="1.5" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">Warrant</span>
+      </a>
+      <nav class="nav-desktop" aria-label="Primary">
+        <a href="#how">How it works</a>
+        <a href="#invariants">Invariants</a>
+        <a href="#compare">Compare</a>
+        <a href="#who">Who it's for</a>
+      </nav>
+      <div class="header-actions">
+        <a class="btn btn-ghost" href="https://github.com/aminobutyric/warrant" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="btn btn-primary" href="#start">Get started</a>
+      </div>
+      <button class="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" id="menuToggle">
+        <span></span><span></span>
+      </button>
+    </div>
+    <div class="nav-mobile" id="navMobile" hidden>
+      <a href="#how">How it works</a>
+      <a href="#invariants">Invariants</a>
+      <a href="#compare">Compare</a>
+      <a href="#who">Who it's for</a>
+      <a href="https://github.com/aminobutyric/warrant" target="_blank" rel="noreferrer">GitHub</a>
+      <a class="btn btn-primary" href="#start">Get started</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="grid-bg" aria-hidden="true"></div>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Least-privilege coding agent</p>
+          <h1>
+            Only what is warranted.<br />
+            <em>Keep the host.</em>
+          </h1>
+          <p class="lede">
+            Warrant is a coding agent that never gets ambient access to your machine —
+            only typed actions a trusted controller can allow, ask, or deny.
+            A prompt is not a permission boundary.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary btn-lg" href="#start">Get started</a>
+            <a class="btn btn-secondary btn-lg" href="https://github.com/aminobutyric/warrant" target="_blank" rel="noreferrer">View the source</a>
+          </div>
+        </div>
+        <aside class="trust-card">
+          <div class="trust-inner">
+            <p class="eyebrow subtle">Trust boundary</p>
+            <dl>
+              <div>
+                <dt>Trusted</dt>
+                <dd>CLI, controller, policy, grants, audit</dd>
+              </div>
+              <div>
+                <dt>Untrusted</dt>
+                <dd>Model, repo bytes, tool output, sandbox</dd>
+              </div>
+              <div>
+                <dt>Crossing</dt>
+                <dd>Validated actions only</dd>
+              </div>
+              <div>
+                <dt>Write-back</dt>
+                <dd>Never to the original project</dd>
+              </div>
+            </dl>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="wrap split">
+        <div>
+          <p class="eyebrow">The problem</p>
+          <h2>Most agents get the keys to the host.</h2>
+        </div>
+        <p class="muted">
+          File access, shell, and network make agents useful — and make prompt injection,
+          secret theft, and a wrecked working tree ordinary risks. Approving every call is fatigue.
+          Skipping approvals is hope. Warrant moves the boundary to actions the controller can enforce.
+        </p>
+      </div>
+    </section>
+
+    <section id="how" class="band">
+      <div class="wrap">
+        <p class="eyebrow">How it works</p>
+        <h2>Four steps. One trusted loop.</h2>
+        <ol class="cards-2">
+          <li>
+            <p class="step-n">01</p>
+            <h3>Point at a project</h3>
+            <p>Warrant copies a disposable snapshot. Symlinks, secrets, and excluded paths never enter the workspace the model can see.</p>
+          </li>
+          <li>
+            <p class="step-n">02</p>
+            <h3>The model proposes actions</h3>
+            <p>Only a closed, versioned schema: list, read, search, patch, diff, named recipes. Unknown fields are rejected.</p>
+          </li>
+          <li>
+            <p class="step-n">03</p>
+            <h3>Policy decides</h3>
+            <p>Allow, ask, or deny — deterministically. Ask requires a grant. Deny wins. The model never sets the rules.</p>
+          </li>
+          <li>
+            <p class="step-n">04</p>
+            <h3>You keep the original</h3>
+            <p>A unified diff is the only artifact written outside application state. Applying it is a human action.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="wrap split">
+        <div>
+          <p class="eyebrow">Policy</p>
+          <h2>Allow, ask, or deny — without asking the model.</h2>
+          <p class="muted">Select an action. The decision is deterministic. Deny wins over ask. Ask wins over allow.</p>
+        </div>
+        <div class="policy-demo">
+          <div class="policy-inner">
+            <div class="chips" role="group" aria-label="Action types">
+              <button type="button" class="chip is-active" data-action="read">read_file</button>
+              <button type="button" class="chip" data-action="patch">apply_patch</button>
+              <button type="button" class="chip" data-action="run">run_task</button>
+              <button type="button" class="chip" data-action="shell">arbitrary shell</button>
+            </div>
+            <div class="policy-result">
+              <p class="decision allow" id="decisionLabel" aria-live="polite">allow</p>
+              <p class="muted" id="decisionNote" aria-live="polite">Bounded, workspace-relative. Secrets and gitignored paths stay out of context.</p>
+            </div>
+            <div class="policy-json">
+              <div class="code-bar">
+                <span>action proposed by model</span>
+                <span class="mono subtle">policy.decide()</span>
+              </div>
+              <pre><code id="decisionJson" class="mono"></code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="invariants" class="band">
+      <div class="wrap">
+        <p class="eyebrow">Security invariants</p>
+        <h2>Defaults you cannot prompt away.</h2>
+        <ul class="cards-3">
+          <li>
+            <h3>No ambient access</h3>
+            <p>The model cannot touch files, processes, credentials, or networks. It proposes typed actions. A trusted controller decides.</p>
+          </li>
+          <li>
+            <h3>Disposable workspace</h3>
+            <p>Each task copies a copy. Patches publish as generations. You export a reviewable diff. The original tree stays yours.</p>
+          </li>
+          <li>
+            <h3>Exact grants</h3>
+            <p>Ask decisions require an exact action or a bounded recipe grant — uses, expiry, and a configuration digest. Vague session trust is not a thing.</p>
+          </li>
+          <li>
+            <h3>Offline verification</h3>
+            <p>Tests run in a rootless, network-none sandbox with pinned image digest, dropped capabilities, and hard resource limits.</p>
+          </li>
+          <li>
+            <h3>Untrusted input</h3>
+            <p>Model output, repository files, tool results, and dependency output are all untrusted. Policy does not consult an LLM.</p>
+          </li>
+          <li>
+            <h3>Audit by default</h3>
+            <p>Every proposed and executed action leaves a redacted JSONL record. Secrets are stripped before persistence.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="compare" class="band">
+      <div class="wrap">
+        <p class="eyebrow">Contrast</p>
+        <h2>Typical agent vs Warrant</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Surface</th>
+                <th>Typical agent</th>
+                <th>Warrant</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Permission boundary</td>
+                <td class="dim">Prompts and allowlists</td>
+                <td>Typed actions + deterministic policy</td>
+              </tr>
+              <tr>
+                <td>Write target</td>
+                <td class="dim">Your working tree</td>
+                <td>Disposable generations only</td>
+              </tr>
+              <tr>
+                <td>Shell</td>
+                <td class="dim">Model-shaped commands</td>
+                <td>Named recipes, trusted argv</td>
+              </tr>
+              <tr>
+                <td>Approvals</td>
+                <td class="dim">Fatigue, or skip-all</td>
+                <td>Exact grants with expiry and uses</td>
+              </tr>
+              <tr>
+                <td>Network</td>
+                <td class="dim">Often open</td>
+                <td>Offline by default</td>
+              </tr>
+              <tr>
+                <td>Audit</td>
+                <td class="dim">Chat history</td>
+                <td>Allowlisted, redacted events</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="who" class="band">
+      <div class="wrap">
+        <p class="eyebrow">Who it is for</p>
+        <h2>Built for people who already feel uneasy.</h2>
+        <ul class="cards-3">
+          <li>
+            <h3>Daily driver, not YOLO</h3>
+            <p>You want an agent on real work without handing it a shell on the host. Control should feel like power, not paperwork.</p>
+          </li>
+          <li>
+            <h3>Local and sovereign</h3>
+            <p>Ollama stays first-class. Remote models can be adapters later. The governance layer does not change with the brain.</p>
+          </li>
+          <li>
+            <h3>Security-minded</h3>
+            <p>You will read the threat model. Adversarial files, path races, and grant replay are tests — not blog claims.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="wrap">
+        <p class="eyebrow">Stack</p>
+        <h2>What ships today</h2>
+        <ul class="stack-grid">
+          <li><strong>Local CLI</strong><span>inspect, run, resume, discard</span></li>
+          <li><strong>Patch export</strong><span>Unified diff, human apply</span></li>
+          <li><strong>Rootless sandbox</strong><span>Pinned image, network none</span></li>
+          <li><strong>Scoped grants</strong><span>Exact action or recipe</span></li>
+          <li><strong>Durable tasks</strong><span>Crash-safe generations</span></li>
+          <li><strong>Linux baseline</strong><span>Python 3.11+, uv, Docker</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="start" class="band">
+      <div class="wrap split">
+        <div>
+          <p class="eyebrow">Get started</p>
+          <h2>Clone, sync, dry-run.</h2>
+          <p class="muted">
+            Locked baseline: Linux, Python 3.11+, uv, rootless Docker, a locally bound Ollama server.
+            Ollama is an adapter — not the security model. The policy boundary stays the same when the brain changes.
+          </p>
+          <a class="btn btn-primary" href="https://github.com/aminobutyric/warrant" target="_blank" rel="noreferrer">Open repository</a>
+        </div>
+        <div class="code-card">
+          <div class="code-bar">
+            <span>repository root</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="copyBtn">Copy</button>
+          </div>
+          <pre><code id="installCode">uv sync --frozen
+uv run --frozen ulg dry-run</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="band faq-band">
+      <div class="wrap narrow">
+        <h2>Questions</h2>
+        <div class="faq" id="faq">
+          <details open>
+            <summary>Does this replace Cursor or Claude Code?</summary>
+            <p>No. Those optimize for autonomy. Warrant is for when you want bounded autonomy you can explain: what was proposed, what was allowed, and what never left a disposable copy.</p>
+          </details>
+          <details>
+            <summary>Is the original project modified?</summary>
+            <p>Not by the agent. Inspection and editing happen on a snapshot. The only outbound artifact is a patch you choose to apply.</p>
+          </details>
+          <details>
+            <summary>Can I use a cloud model?</summary>
+            <p>The architecture is provider-neutral. Ollama is the current adapter. A remote API is an opt-in brain, not a bypass of policy, grants, or the sandbox.</p>
+          </details>
+          <details>
+            <summary>Why “Warrant”?</summary>
+            <p>A warrant is an explicit grant of authority. The agent gets only typed actions policy can allow, ask, or deny — never ambient access. The model works. The warrant decides.</p>
+          </details>
+          <details>
+            <summary>What is the license?</summary>
+            <p>Mozilla Public License 2.0. The trusted controller is inspectable. That is part of the product, not a footnote.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <p class="mono subtle">Warrant · least-privilege coding agent · MPL-2.0</p>
+      <a href="https://github.com/aminobutyric/warrant" target="_blank" rel="noreferrer">github.com/aminobutyric/warrant</a>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
