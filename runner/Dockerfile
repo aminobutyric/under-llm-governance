@@ -27,10 +27,10 @@ RUN apt-get update \
 
 COPY --chmod=0555 entrypoint.py /usr/local/bin/ulg-runner-entrypoint
 
-LABEL org.opencontainers.image.title="Under LLM Governance offline runner" \
+LABEL org.opencontainers.image.title="Warrant offline runner" \
       org.opencontainers.image.licenses="MPL-2.0" \
       org.opencontainers.image.base.digest="sha256:67a1e1f215ccda113cfc024e8639049257e88f273898f595b61476d128d387e8" \
-      org.opencontainers.image.source="https://github.com/aminobutyric/under-llm-governance" \
+      org.opencontainers.image.source="https://github.com/aminobutyric/warrant" \
       org.opencontainers.image.version="${ULG_VERSION}" \
       org.opencontainers.image.revision="${ULG_SOURCE_REVISION}"
 

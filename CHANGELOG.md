@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0b3 - 2026-09-12
+
+- Renamed the PyPI distribution from `under-llm-governance` to `warrant-llm`.
+- Preserved the `ulg` Python import package and command-line entry point for
+  compatibility.
+- Updated trusted publishing, public-install verification, documentation, and
+  artifact checks for the new distribution name.
+
 ## 0.1.0b2 - 2026-09-09
 
 - Removed unrelated landing-site assets accidentally included in the

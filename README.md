@@ -1,4 +1,4 @@
-# Under LLM Governance
+# Warrant
 
 A security-first, local coding-agent project. The agent will use a local model
 through Ollama, work within a user-selected project, and operate under
@@ -80,7 +80,7 @@ Phase 4 boundary.
 The public beta will install as a normal command-line tool:
 
 ```console
-uv tool install under-llm-governance==0.1.0b2
+uv tool install warrant-llm==0.1.0b3
 ulg init
 ollama pull qwen3-coder:30b
 ulg dry-run
@@ -104,7 +104,7 @@ These development commands assume the repository root is the current directory.
 For a command that works from any directory, make the ULG checkout explicit:
 
 ```console
-export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
+export ULG_REPO=/path/to/warrant
 
 uv run --project "$ULG_REPO" --frozen ulg inspect \
   --workspace /absolute/path/to/small-project \

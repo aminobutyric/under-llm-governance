@@ -19,7 +19,7 @@ disclosure and a fixed release when warranted.
 
 ## Release integrity
 
-Official Python packages are published as `under-llm-governance` on PyPI by the
+Official Python packages are published as `warrant-llm` on PyPI by the
 tag-triggered GitHub Actions workflow using trusted publishing. GitHub
 prereleases contain the same wheel and source distribution plus `SHA256SUMS`.
 The sandbox runner is selected by the exact GHCR digest in the packaged policy;

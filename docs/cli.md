@@ -45,7 +45,7 @@ Set these once in each terminal, replacing the first value if your checkout
 moves:
 
 ```console
-export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
+export ULG_REPO=/path/to/warrant
 ```
 
 `ULG_REPO` is a shell convenience used by the development examples. A custom

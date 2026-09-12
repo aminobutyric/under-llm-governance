@@ -1,12 +1,13 @@
 # v0.1 beta release checklist
 
-This checklist tracks the corrected public `v0.1.0b2` beta. The
+This checklist tracks the renamed public `warrant-llm` distribution, beginning
+with `v0.1.0b3`. The
 release remains Linux amd64, local Ollama, rootless Docker, PyPI plus GitHub, and
 an immutable GHCR runner. The beta collects no telemetry.
 
 ## Milestone 1: release foundation
 
-- [x] Use `0.1.0b2` as the single package and CLI version source.
+- [x] Use `0.1.0b3` as the single package and CLI version source.
 - [x] Package the trusted policy template in both wheel and source distribution.
 - [x] Add `ulg init` with the `qwen3-coder:30b` reference model.
 - [x] Create and replace user policy files privately and atomically.
@@ -47,24 +48,26 @@ digest-qualified GHCR pull has passed.
       prereleases, and verify a fresh public install.
 - [ ] Publish the checksums and announce the beta support channel.
 
-The repository-side OIDC and least-privilege release permissions are ready, and
-the `0.1.0b1` upload confirmed the trusted-publisher configuration. Publication
-items remain unchecked until the corrected tag workflow and clean public
-install succeed. See the [release procedure](releasing.md).
+The repository-side OIDC and least-privilege release permissions are ready. A
+new pending trusted publisher must be configured for the `warrant-llm` PyPI
+project before tagging. Publication items remain unchecked until the renamed
+tag workflow and clean public install succeed. See the
+[release procedure](releasing.md).
 
 `0.1.0b1` reached PyPI, but its source distribution included an unrelated
 `site/` directory because the release tag followed a misplaced landing-site
 merge. The wheel did not contain those files. The GitHub prerelease step also
 failed before publication because its job had no checkout or explicit
-repository context. `0.1.0b2` removes the unrelated directory, constrains and
-verifies source-distribution roots, supplies explicit `GH_REPO` context, and is
-the supported completion target.
+repository context. `0.1.0b2` removed the unrelated directory, constrained and
+verified source-distribution roots, and supplied explicit `GH_REPO` context.
+`0.1.0b3` carries those corrections under the new `warrant-llm` distribution
+name while retaining the `ulg` import package and command.
 
 ## Release stop conditions
 
 Do not publish if the configured runner is unavailable from GHCR, any required
 security case fails, the original-project integrity check fails, artifact
-metadata differs from `0.1.0b2`, or a clean supported-Python install fails.
+metadata differs from `0.1.0b3`, or a clean supported-Python install fails.
 
 The runner is public and anonymously pullable by its configured digest. The
 remaining stop conditions are covered by the committed-tree and Milestone 4
