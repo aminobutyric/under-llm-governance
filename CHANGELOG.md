@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added read-only `ulg doctor` setup diagnostics with suggested fixes and JSON output.
+- Added a first-task tutorial, beta feedback form, and adoption checklist.
+- Reconciled release checklists with the completed `0.1.0b3` publication.
+
 ## 0.1.0b3 - 2026-09-12
 
 - Renamed the PyPI distribution from `under-llm-governance` to `warrant-llm`.

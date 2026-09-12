@@ -77,6 +77,10 @@ Phase 4 boundary.
 
 ## Quick start
 
+Start with the [first-task tutorial](docs/first-task.md) for a small, reviewable
+Python change. The upcoming release adds `ulg doctor`; from this checkout use
+`uv run ulg doctor` to check setup and see suggested fixes.
+
 The public beta will install as a normal command-line tool:
 
 ```console
@@ -228,6 +232,9 @@ the fixed command, pinned image, offline sandbox limits, expiry, and use count.
 Invalid input and unavailable approval handling fail closed.
 
 ## Documentation
+
+- [First-task tutorial](docs/first-task.md)
+- [Beta adoption checklist](docs/beta-adoption.md)
 
 - [Architecture](docs/architecture.md)
 - [Security model](docs/security-model.md)

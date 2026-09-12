@@ -93,6 +93,10 @@ class RootlessDockerRunner:
         return workspace
 
     def _verify_image(self, endpoint: str) -> None:
+        self.verify_image(endpoint)
+
+    def verify_image(self, endpoint: str) -> None:
+        """Inspect the configured local image without pulling or running it."""
         command = (
             str(self._docker_binary),
             "--host",

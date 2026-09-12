@@ -44,15 +44,17 @@ digest-qualified GHCR pull has passed.
 - [x] Add build, artifact inspection, and release workflows.
 - [x] Document limitations, retention, recovery, upgrade, and issue reporting.
 - [x] Configure trusted PyPI publishing and GitHub release permissions.
-- [ ] Build from the release tag, verify artifacts, publish PyPI and GitHub
+- [x] Build from the release tag, verify artifacts, publish PyPI and GitHub
       prereleases, and verify a fresh public install.
-- [ ] Publish the checksums and announce the beta support channel.
+- [x] Publish the checksums.
+- [ ] Announce the beta support channel with the adoption launch.
 
-The repository-side OIDC and least-privilege release permissions are ready. A
-new pending trusted publisher must be configured for the `warrant-llm` PyPI
-project before tagging. Publication items remain unchecked until the renamed
-tag workflow and clean public install succeed. See the
-[release procedure](releasing.md).
+The `v0.1.0b3` [release workflow](https://github.com/aminobutyric/warrant/actions/runs/34682698880)
+completed successfully, including public-install checks on Python 3.11 and 3.13.
+The [GitHub prerelease](https://github.com/aminobutyric/warrant/releases/tag/v0.1.0b3)
+contains both distributions and checksums. Trusted publishing for `warrant-llm`
+is configured. Publication is complete; recruitment and the support-channel
+announcement are tracked in [Milestone 5](beta-adoption.md).
 
 `0.1.0b1` reached PyPI, but its source distribution included an unrelated
 `site/` directory because the release tag followed a misplaced landing-site

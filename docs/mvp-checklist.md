@@ -49,8 +49,8 @@ negative tests, documentation, and relevant acceptance evidence are complete.
 ## 5. Release readiness
 
 - [x] Refresh README and source-layout documentation for the approval increment.
-- [ ] Add the dependency-security check required by the development plan to CI.
+- [x] Add the dependency-security check required by the development plan to CI.
 - [x] Test installation and the quick start on clean Python 3.11 and 3.13 systems.
-- [ ] Document operator setup, state retention, cleanup, recovery, and limitations.
+- [x] Document operator setup, state retention, cleanup, recovery, and limitations.
 - [x] Record the runner image digest, inventories, and complete acceptance evidence.
 - [x] Mark the MVP complete only after Phases 0-4 and all security gates pass.

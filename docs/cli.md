@@ -4,6 +4,21 @@ This guide covers the implemented Phase 0–4 commands, including scoped termina
 approvals, durable resume, bounded review, redacted audit summaries, and explicit
 cleanup.
 
+## Setup diagnostics (upcoming release)
+
+From this checkout, run `uv run ulg doctor`, optionally with `--config PATH` or
+`--json`. This command is not included in the published `0.1.0b3` package.
+It checks Linux amd64, supported Python, trusted configuration, the local Ollama
+API and installed model, rootless Docker/cgroups, and the local runner digest.
+It does not load a model, run a container, pull an image, or change configuration.
+Fix suggestions are displayed for the operator to run explicitly.
+
+Exit code 0 means every setup check passed; 2 means at least one check failed or
+could not run. JSON contains `ready` and `checks`, each with `name`, `status`
+(`pass`, `fail`, or `skip`), `message`, and `fix`. The API request disables
+environment proxies and redirects and bounds timeouts and response size.
+A passed model check confirms installation, not inference speed or task quality.
+
 ## Path rules
 
 `ulg` treats command-line paths explicitly:

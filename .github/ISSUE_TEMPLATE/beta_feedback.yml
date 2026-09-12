@@ -1,0 +1,34 @@
+name: Beta experience
+description: Tell us how setup and your first coding task went.
+title: "[Beta feedback]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for trying Warrant. Review everything before posting: remove secrets,
+        private code, paths, and task text. Report security issues through Security,
+        not this public form. Diagnostics are not uploaded automatically.
+  - type: textarea
+    id: setup
+    attributes:
+      label: Environment and setup
+      description: Warrant version, Linux distribution, Python, GPU/RAM, model, and sanitized doctor output if available.
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: First task
+      description: What did you try? Did it finish? How long did setup and the task take? Did you need help?
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: Confusion or failures
+      description: Where did you get stuck? Were approvals, test results, and the final patch understandable? Did the original files remain unchanged?
+  - type: textarea
+    id: return
+    attributes:
+      label: Would you use Warrant again?
+      description: Have you tried a second task? What one change would make it more useful?

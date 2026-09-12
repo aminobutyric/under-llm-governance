@@ -29,6 +29,7 @@ from ulg.audit import (
 from ulg.config import ConfigError, load_config, parse_config
 from ulg.config.models import ModelSettings
 from ulg.controller import Controller, ControllerLimitError, ReadOnlyController
+from ulg.doctor import diagnose
 from ulg.model import FakeModel, ModelProtocolError, OllamaModel
 from ulg.policy import BaselinePolicy
 from ulg.sandbox import (
@@ -78,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    doctor = subparsers.add_parser("doctor", help="check setup and suggest fixes")
+    _add_config_argument(doctor)
+    doctor.add_argument(
+        "--json", action="store_true", help="emit structured diagnostics"
+    )
 
     init = subparsers.add_parser(
         "init",
@@ -290,6 +297,28 @@ def _nonnegative_int(value: str) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "doctor":
+        try:
+            config_path = _resolve_config_path(args.config)
+        except ConfigError:
+            config_path = args.config or Path(
+                os.environ.get("ULG_CONFIG", str(_default_config_path()))
+            )
+        checks = diagnose(config_path)
+        ready = all(check.status == "pass" for check in checks)
+        if args.json:
+            print(json.dumps({"ready": ready, "checks": [c.to_dict() for c in checks]}))
+        else:
+            for check in checks:
+                print(f"[{check.status.upper()}] {check.name}: {check.message}")
+                if check.fix:
+                    print(f"  Next: {check.fix}")
+            print(
+                "Setup checks passed."
+                if ready
+                else "Resolve the items above and rerun ulg doctor."
+            )
+        return 0 if ready else 2
     if args.command == "init":
         return _initialize_config(args)
     if args.command == "dry-run":
