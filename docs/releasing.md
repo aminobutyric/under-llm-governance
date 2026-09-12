@@ -8,7 +8,7 @@ PyPI version.
 
 Create a PyPI trusted publisher with these exact values:
 
-- PyPI project: `under-llm-governance`
+- PyPI project: `warrant-llm`
 - GitHub owner: `aminobutyric`
 - Repository: `warrant`
 - Workflow: `release.yml`
@@ -28,8 +28,8 @@ to the GitHub release job; no long-lived PyPI token is used.
 3. Create an annotated tag from the exact `release` commit and push it:
 
    ```console
-   git tag -a v0.1.0b2 -m "Under LLM Governance v0.1.0b2"
-   git push origin v0.1.0b2
+   git tag -a v0.1.0b3 -m "Warrant v0.1.0b3"
+   git push origin v0.1.0b3
    ```
 
 4. Approve the protected `pypi` environment deployment, if configured.
@@ -45,11 +45,14 @@ If any gate fails, leave the tag for diagnosis but do not manually upload a
 different artifact under the same version. Fix the source, increment the beta
 version, and release a new tag.
 
-## `0.1.0b1` recovery
+## Distribution-name migration
 
-Do not delete or move `v0.1.0b1`, and do not rerun its failed release workflow:
-PyPI already published artifacts from that immutable tag. After `0.1.0b2` is
-public and its complete workflow succeeds, yank `0.1.0b1` on PyPI with the
-reason `Source distribution included unrelated site assets; use 0.1.0b2`.
-Yanking preserves the audit record and exact-version reproducibility while
-directing normal installers to the corrected beta.
+Versions `0.1.0b1` and `0.1.0b2` were published under the former PyPI
+distribution name `under-llm-governance`. Do not delete that project until
+`warrant-llm==0.1.0b3` has completed the workflow above and passed an
+independent public install. PyPI projects cannot be renamed in place, and the
+old release tags remain immutable historical records.
+
+After the replacement is verified, remove the former PyPI project only through
+its project settings while signed in as an owner. Deletion is permanent and
+must not be performed as part of the automated release workflow.

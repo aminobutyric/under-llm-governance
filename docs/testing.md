@@ -13,7 +13,7 @@ from the repository root unless a section explicitly says they work anywhere.
 Prepare reusable paths:
 
 ```console
-export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
+export ULG_REPO=/path/to/warrant
 cd "$ULG_REPO"
 uv sync --frozen
 uv run --frozen ulg init

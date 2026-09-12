@@ -17,7 +17,7 @@ telemetry.
 ## Install and initialize
 
 ```console
-uv tool install under-llm-governance==0.1.0b2
+uv tool install warrant-llm==0.1.0b3
 ulg init
 ollama pull qwen3-coder:30b
 ulg dry-run
@@ -80,7 +80,7 @@ Back up the trusted policy and finish or discard retained tasks before changing
 versions. Upgrade to an explicitly selected beta and rerun the smoke checks:
 
 ```console
-uv tool upgrade 'under-llm-governance==VERSION'
+uv tool upgrade 'warrant-llm==VERSION'
 ulg --version
 ulg dry-run
 ulg sandbox-preflight
@@ -93,9 +93,9 @@ previous version. Task-state forward/backward compatibility is not guaranteed
 during beta, so do not rely on a newer task record after rollback.
 
 ```console
-uv tool install --force under-llm-governance==VERSION
+uv tool install --force warrant-llm==VERSION
 ```
 
-Remove the command with `uv tool uninstall under-llm-governance`. Configuration
+Remove the command with `uv tool uninstall warrant-llm`. Configuration
 and state remain for recovery. After reviewing exact paths and retained tasks,
 use `ulg clean` before uninstalling if those records should also be removed.

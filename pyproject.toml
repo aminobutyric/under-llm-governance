@@ -3,13 +3,13 @@ requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "under-llm-governance"
+name = "warrant-llm"
 dynamic = ["version"]
 description = "A least-privilege controller for local coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MPL-2.0"
-authors = [{ name = "Under LLM Governance contributors" }]
+authors = [{ name = "Warrant contributors" }]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",

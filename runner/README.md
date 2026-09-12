@@ -8,7 +8,7 @@ by their immutable GHCR repository digest in trusted application configuration.
 Build it only through the rootless daemon. This form works from any directory:
 
 ```console
-export ULG_REPO=/home/amin-mth/Projects/Personal/under-llm-governance
+export ULG_REPO=/path/to/warrant
 docker build --pull=false \
   --tag ghcr.io/aminobutyric/under-llm-governance-runner:0.1.0b1 \
   "$ULG_REPO/runner"

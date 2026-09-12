@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/under-llm-governance
+      url: https://pypi.org/p/warrant-llm
     permissions:
       id-token: write
     steps:
@@ -161,7 +161,7 @@ jobs:
           uv venv --python "${{ matrix.python-version }}" "$environment"
           installed=false
           for attempt in {1..12}; do
-            if uv pip install --no-cache --python "$environment/bin/python" "under-llm-governance==$version"; then
+            if uv pip install --no-cache --python "$environment/bin/python" "warrant-llm==$version"; then
               installed=true
               break
             fi
@@ -196,4 +196,4 @@ jobs:
         run: >-
           gh release create "$GITHUB_REF_NAME" dist/*
           --verify-tag --prerelease --generate-notes
-          --title "Under LLM Governance ${GITHUB_REF_NAME}"
+          --title "Warrant ${GITHUB_REF_NAME}"

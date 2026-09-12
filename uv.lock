@@ -1049,7 +1049,7 @@ wheels = [
 ]
 
 [[package]]
-name = "under-llm-governance"
+name = "warrant-llm"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

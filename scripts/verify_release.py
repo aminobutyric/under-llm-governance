@@ -12,8 +12,8 @@ import tomllib
 import zipfile
 from pathlib import Path, PurePosixPath
 
-PROJECT_NAME = "under-llm-governance"
-WHEEL_NAME = "under_llm_governance"
+PROJECT_NAME = "warrant-llm"
+WHEEL_NAME = "warrant_llm"
 RUNNER_PATTERN = re.compile(
     r"^ghcr\.io/aminobutyric/under-llm-governance-runner@sha256:[0-9a-f]{64}$"
 )

@@ -2,7 +2,7 @@
 
 ## Position
 
-Under LLM Governance should begin as a useful open-source local tool under
+Warrant should begin as a useful open-source local tool under
 MPL-2.0. A future commercial offering should sell organizational coordination,
 deployment, compliance, and support—not remove safety from the community
 edition or impose artificial local-use limits.
@@ -69,7 +69,7 @@ policy if they become commercially important.
 Start with two clear units if an enterprise product is eventually built:
 
 ```text
-under-llm-governance/          MPL-2.0 community core and public contracts
+warrant/                       MPL-2.0 community core and public contracts
 ulg-enterprise/                separately licensed organization features
 ```
 
@@ -94,4 +94,3 @@ Put a feature in the community core when it is necessary for safe local use,
 interoperability, trust, or a healthy extension ecosystem. Consider enterprise
 only when the feature primarily coordinates multiple people or machines,
 enforces organization-level governance, or provides a managed service.
-
